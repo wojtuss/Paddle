@@ -35,7 +35,7 @@ RUN apt-get update && \
     clang-3.8 llvm-3.8 libclang-3.8-dev \
     net-tools libtool \
     libgtest-dev frameworkintegration \
-    cgdb gdbserver && \
+    vim cgdb gdbserver && \
     apt-get clean -y
 
 # Install Go and glide
@@ -93,6 +93,9 @@ RUN echo 'root:root' | chpasswd
 RUN sed -ri 's/^PermitRootLogin\s+.*/PermitRootLogin yes/' /etc/ssh/sshd_config
 RUN sed -ri 's/UsePAM yes/#UsePAM yes/g' /etc/ssh/sshd_config
 EXPOSE 22
+
+# Expose port 1234 for gdbserver
+EXPOSE 1234
 
 # Useful aliases
 RUN echo 'alias cmpd="cmake -DWITH_DOC=OFF -DWITH_GPU=OFF -DWITH_DISTRIBUTE=OFF -DWITH_GOLANG=OFF -DWITH_STYLE_CHECK=ON -DWITH_TESTING=ON -DCMAKE_BUILD_TYPE=Debug .."' >> ~/.bashrc
