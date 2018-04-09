@@ -94,14 +94,9 @@ RUN sed -ri 's/^PermitRootLogin\s+.*/PermitRootLogin yes/' /etc/ssh/sshd_config
 RUN sed -ri 's/UsePAM yes/#UsePAM yes/g' /etc/ssh/sshd_config
 EXPOSE 22
 
+# Alias for loading other aliases
+RUN echo 'alias .b=". /paddle-utils/.bash_aliases"' >> ~/.bashrc
+
 # Expose port 1234 for gdbserver
 EXPOSE 1234
 
-# Useful aliases
-RUN echo 'alias cmpd="cmake -DWITH_DOC=OFF -DWITH_GPU=OFF -DWITH_DISTRIBUTE=OFF -DWITH_GOLANG=OFF -DWITH_STYLE_CHECK=ON -DWITH_TESTING=ON -DCMAKE_BUILD_TYPE=Debug .."' >> ~/.bashrc
-RUN echo 'alias cmp="cmake -DWITH_DOC=OFF -DWITH_GPU=OFF -DWITH_DISTRIBUTE=OFF -DWITH_GOLANG=OFF -DWITH_STYLE_CHECK=ON -DWITH_TESTING=ON .."' >> ~/.bashrc
-RUN echo 'alias mp="make copy_paddle_pybind"' >> ~/.bashrc
-RUN echo 'alias mpj="make -j3 copy_paddle_pybind"' >> ~/.bashrc
-
-# development image default do build work
-#CMD ["bash", "/paddle/paddle/scripts/docker/build.sh"]
