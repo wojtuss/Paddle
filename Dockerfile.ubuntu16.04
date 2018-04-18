@@ -95,7 +95,7 @@ RUN sed -ri 's/UsePAM yes/#UsePAM yes/g' /etc/ssh/sshd_config
 EXPOSE 22
 
 # Alias for loading other aliases
-RUN echo 'alias .b=". /paddle-utils/.bash_aliases"' >> ~/.bashrc
+RUN echo 'alias .b=". /paddle-utils/bash_aliases"' >> ~/.bashrc
 
 # Expose port 1234 for gdbserver
 EXPOSE 1234
