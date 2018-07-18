@@ -128,16 +128,21 @@ class TestGRUOp(OpTest):
                 (batch_size, frame_size), dtype='float64')
         }
 
+    def init_kernel_type(self):
+         self.use_mkldnn = False
+
     def set_confs(self):
         self.is_reverse = False
         self.attrs = {
             'activation': 'tanh',
             'gate_activation': 'sigmoid',
-            'is_reverse': self.is_reverse
+            'is_reverse': self.is_reverse,
+            'use_mkldnn': self.use_mkldnn
         }
 
     def setUp(self):
         self.op_type = "gru"
+        self.init_kernel_type()
         self.set_confs()
         self.set_data()
         self.gru()

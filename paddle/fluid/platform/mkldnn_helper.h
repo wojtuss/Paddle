@@ -75,6 +75,8 @@ inline mkldnn::memory::desc MKLDNNMemDesc(const std::vector<int>& dims,
 
 inline bool CanMKLDNNBeUsed(const framework::ExecutionContext& ctx) {
   bool use_mkldnn = ctx.Attr<bool>("use_mkldnn");
+
+  std::cout << "--- use_mkldnn: " << use_mkldnn  << std::endl;
   return use_mkldnn && platform::is_cpu_place(ctx.GetPlace());
 }
 

@@ -12,8 +12,12 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License. */
 
-#include "paddle/fluid/operators/gru_op.h"
 #include <string>
+
+#include "paddle/fluid/operators/gru_op.h"
+#ifdef PADDLE_WITH_MKLDNN
+#include "paddle/fluid/platform/mkldnn_helper.h"
+#endif
 
 namespace paddle {
 namespace operators {
@@ -67,6 +71,26 @@ class GRUOp : public framework::OperatorWithKernel {
     ctx->SetOutputDim("Hidden", {input_dims[0], frame_size});
     ctx->ShareLoD("Input", "Hidden");
   }
+
+ protected:
+  framework::OpKernelType GetExpectedKernelType(
+		  const framework::ExecutionContext& ctx) const override {
+	framework::LibraryType library_{framework::LibraryType::kPlain};
+	framework::DataLayout layout_{framework::DataLayout::kAnyLayout};
+#ifdef PADDLE_WITH_MKLDNN
+	std::cout << "--- GetExpectedKernelType with MKLDNN --- \n";
+	if (library_ == framework::LibraryType::kPlain &&
+			platform::CanMKLDNNBeUsed(ctx)) {
+		library_ = framework::LibraryType::kMKLDNN;
+		layout_ = framework::DataLayout::kMKLDNN;
+	}
+
+#endif
+	return framework::OpKernelType(
+			framework::ToDataType(ctx.Input<Tensor>("Input")->type()),
+			ctx.GetPlace(), layout_, library_);
+  }
+
 };
 
 class GRUOpMaker : public framework::OpProtoAndCheckerMaker {
@@ -132,6 +156,10 @@ class GRUOpMaker : public framework::OpProtoAndCheckerMaker {
                   "(bool, defalut: False) "
                   "whether to compute reversed GRU.")
         .SetDefault(false);
+    AddAttr<bool>("use_mkldnn",
+                  "(bool, default false) "
+		  "Only used in mkldnn kernel")
+        .SetDefault(true);
     AddComment(R"DOC(
 GRU Operator implements part calculations of the complete GRU as following:
 
@@ -209,6 +237,22 @@ class GRUGradOp : public framework::OperatorWithKernel {
     if (ctx->HasOutput(weight_grad_name))
       ctx->SetOutputDim(weight_grad_name, weight_dims);
   }
+
+  // framework::OpKernelType GetExpectedLRNKernel(
+		  // const framework::ExecutionContext& ctx) {
+	// framework::LibraryType library_{framework::LibraryType::kPlain};
+	// framework::DataLayout layout_{framework::DataLayout::kAnyLayout};
+// #ifdef PADDLE_WITH_MKLDNN
+	// if (library_ == framework::LibraryType::kPlain &&
+			// platform::CanMKLDNNBeUsed(ctx)) {
+		// library_ = framework::LibraryType::kMKLDNN;
+		// layout_ = framework::DataLayout::kMKLDNN;
+	// }
+// #endif
+	// return framework::OpKernelType(
+			// framework::ToDataType(ctx.Input<Tensor>("Input")->type()),
+			// ctx.GetPlace(), layout_, library_);
+  // }
 };
 
 }  // namespace operators

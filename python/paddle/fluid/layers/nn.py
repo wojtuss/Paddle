@@ -601,7 +601,8 @@ def dynamic_gru(input,
                 is_reverse=False,
                 gate_activation='sigmoid',
                 candidate_activation='tanh',
-                h_0=None):
+                h_0=None,
+                use_mkldnn=False):
     """
     **Gated Recurrent Unit (GRU) Layer**
 
@@ -707,7 +708,8 @@ def dynamic_gru(input,
         attrs={
             'is_reverse': is_reverse,
             'gate_activation': gate_activation,
-            'activation': candidate_activation
+            'activation': candidate_activation,
+            'use_mkldnn': use_mkldnn
         })
     return hidden
 
@@ -718,7 +720,8 @@ def gru_unit(input,
              param_attr=None,
              bias_attr=None,
              activation='tanh',
-             gate_activation='sigmoid'):
+             gate_activation='sigmoid',
+             use_mkldnn=False):
     """
     GRU unit layer. The equation of a gru step is:
 
@@ -805,6 +808,7 @@ def gru_unit(input,
         attrs={
             'activation': 2,  # tanh
             'gate_activation': 1,  # sigmoid
+            'use_mkldnn': use_mkldnn
         })
 
     return updated_hidden, reset_hidden_pre, gate
@@ -2668,15 +2672,15 @@ def beam_search(pre_ids,
 
     Refer to `Beam search <https://en.wikipedia.org/wiki/Beam_search>`_
     for more details.
-    
-    This layer does the search in beams for one time step. Specifically, it 
+
+    This layer does the search in beams for one time step. Specifically, it
     selects the top-K candidate word ids of current step from :attr:`ids`
     according to their :attr:`scores` for all source sentences, where K is
     :attr:`beam_size` and :attr:`ids, scores` are predicted results from the
     computation cell. Additionally, :attr:`pre_ids` and :attr:`pre_scores` are
     the output of beam_search at previous step, they are needed for special use
     to handle ended candidate translations.
- 
+
     Note that the :attr:`scores` passed in should be accumulated scores, and
     length penalty should be done with extra operators before calculating the
     accumulated scores if needed, also suggest finding top-K before it and
@@ -3877,7 +3881,7 @@ def nce(input,
 def hsigmoid(input, label, num_classes, param_attr=None, bias_attr=None):
     """
     The hierarchical sigmoid operator is used to accelerate the training
-    process of language model. This operator organizes the classes into a 
+    process of language model. This operator organizes the classes into a
     complete binary tree, each leaf node represents a class(a word) and each
     internal node acts as a binary classifier. For each word there's a unique
     path from root to it's leaf node, hsigmoid calculate the cost for each
@@ -3887,9 +3891,9 @@ def hsigmoid(input, label, num_classes, param_attr=None, bias_attr=None):
 
     Refer to `Hierarchical Probabilistic Neural Network Language Model
     <http://www.iro.umontreal.ca/~lisa/pointeurs/hierarchical-nnlm-aistats05.pdf>`_
-    
+
     Args:
-        input (Variable): The input tensor variable with shape 
+        input (Variable): The input tensor variable with shape
             :math:`[N \\times D]`, where :math:`N` is the size of mini-batch,
             and :math:`D` is the feature size.
         label (Variable): The tensor variable contains labels of training data.
@@ -3897,7 +3901,7 @@ def hsigmoid(input, label, num_classes, param_attr=None, bias_attr=None):
         num_classes: (int), The number of classes, must not be less than 2.
         param_attr (ParamAttr|list of ParamAttr, default None): The parameter
              attribute for learnable parameters/weights of this layer.
-        bias_attr (ParamAttr|list of ParamAttr, default None):  The parameter 
+        bias_attr (ParamAttr|list of ParamAttr, default None):  The parameter
              attribute for the bias of this layer. If it is set to False, no
              bias will be applied.
 

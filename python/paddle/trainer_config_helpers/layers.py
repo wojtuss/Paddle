@@ -2549,8 +2549,8 @@ def img_conv_layer(input,
     There are several groups of filters in PaddlePaddle implementation.
     If the groups attribute is greater than 1, for example groups=2,
     the input will be splitted into 2 parts along the channel axis, and
-    the filters will also be splitted into 2 parts. The first half of the filters 
-    is only connected to the first half of the input channels, while the second 
+    the filters will also be splitted into 2 parts. The first half of the filters
+    is only connected to the first half of the input channels, while the second
     half of the filters is only connected to the second half of the input. After
     the computation of convolution for each part of input,
     the output will be obtained by concatenating the two results.
@@ -2558,7 +2558,7 @@ def img_conv_layer(input,
     The details of grouped convolution, please refer to:
     `ImageNet Classification With Deep Convolutional Neural Networks
     <http://www.cs.toronto.edu/~kriz/imagenet_classification_with_deep_convolutional.pdf>`_
-    
+
     The example usage is:
 
     ..  code-block:: python
@@ -2807,9 +2807,9 @@ def img_pool_layer(input,
                       True is the default. If it is set to False, the floor function will
                       be used.
     :type ceil_mode: bool
-    :param exclude_mode: Whether to exclude the padding cells when calculating, but only 
-                         work when pool_type is AvgPooling. If None, also exclude the padding 
-                         cells. If use cudnn, use CudnnAvgPooling or CudnnAvgInclPadPooling 
+    :param exclude_mode: Whether to exclude the padding cells when calculating, but only
+                         work when pool_type is AvgPooling. If None, also exclude the padding
+                         cells. If use cudnn, use CudnnAvgPooling or CudnnAvgInclPadPooling
                          as pool_type to identify the mode.
     :type exclude_mode: bool
     :return: LayerOutput object.
@@ -3045,8 +3045,8 @@ def upsample_layer(input,
     :type input: list | tuple | collections.Sequence
     :param scale: outputSize =  scale * inputSize
     :type scale: int | list | tuple | .
-    :param scale_y: scale_y will be equal to scale, if it's value is None, 
-    :type scale: int | None. 
+    :param scale_y: scale_y will be equal to scale, if it's value is None,
+    :type scale: int | None.
     :param upsample_size: specify the outputSize.
     :type upsample_size: int | list | tuple.
     :param upsample_size_y: specify the y dimension outputSize.
