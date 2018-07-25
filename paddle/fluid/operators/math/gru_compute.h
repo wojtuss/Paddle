@@ -21,11 +21,17 @@ namespace math {
 
 template <typename T>
 struct GRUMetaValue {
+  // [W_u, W_r]
   T *gate_weight;
+  // W ?
   T *state_weight;
+  // z_t
   T *gate_value;
+  // r_t
   T *reset_output_value;
+  // h_t
   T *output_value;
+  // h_{t-1}
   T *prev_out_value;
 };
 

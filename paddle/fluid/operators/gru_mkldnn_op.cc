@@ -23,19 +23,26 @@ namespace paddle {
 namespace operators {
 
 using framework::Tensor;
+using platform::MKLDNNDeviceContext;
 
 template <typename T>
 class GRUMKLDNNKernel : public framework::OpKernel<T> {
  public:
-  void Compute(const framework::ExecutionContext& context) const override {
-    std::cout << "--- GRUMKLDNNKernel::Compute ---\n";
+  void Compute(const framework::ExecutionContext& ctx) const override {
+	std::cout << "--- GRUMKLDNNKernel::Compute ---\n";
+	PADDLE_ENFORCE(paddle::platform::is_cpu_place(ctx.GetPlace()),
+			"It must use CPUPlace.");                                     
+                                                                                   
+	// auto& dev_ctx =
+		// ctx.template device_context<MKLDNNDeviceContext>();    
+		// const auto& mkldnn_engine = dev_ctx.GetEngine();                             
   }
 };
 
 template <typename T>
 class GRUMKLDNNGradKernel : public framework::OpKernel<T> {
  public:
-  void Compute(const framework::ExecutionContext& context) const override {
+  void Compute(const framework::ExecutionContext& ctx) const override {
     std::cout << "--- GRUMKLDNNGradKernel::Compute ---\n";
   }
 };

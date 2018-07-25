@@ -57,6 +57,14 @@ class GRUKernel : public framework::OpKernel<T> {
     hidden->mutable_data<T>(context.GetPlace());
 
     auto hidden_dims = hidden->dims();
+    // std::vector<int> my_dims = framework::vectorize2int(hidden_dims);
+    // std::cout << "--- hidden->dims: ";
+   // for (const auto &it: my_dims) {
+	// std::cout << it << " ";
+   // }
+   // std::cout << std::endl;
+   std::cout << "--- hd0: " << hidden_dims[0] << std::endl;
+   std::cout << "--- hd1: " << hidden_dims[1] << std::endl;
 
     bool is_reverse = context.Attr<bool>("is_reverse");
     math::LoDTensor2BatchFunctor<DeviceContext, T> to_batch;

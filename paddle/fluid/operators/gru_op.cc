@@ -159,7 +159,7 @@ class GRUOpMaker : public framework::OpProtoAndCheckerMaker {
     AddAttr<bool>("use_mkldnn",
                   "(bool, default false) "
 		  "Only used in mkldnn kernel")
-        .SetDefault(true);
+        .SetDefault(false);
     AddComment(R"DOC(
 GRU Operator implements part calculations of the complete GRU as following:
 
