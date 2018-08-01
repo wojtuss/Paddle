@@ -78,7 +78,6 @@ class GRUOp : public framework::OperatorWithKernel {
 	framework::LibraryType library_{framework::LibraryType::kPlain};
 	framework::DataLayout layout_{framework::DataLayout::kAnyLayout};
 #ifdef PADDLE_WITH_MKLDNN
-	std::cout << "--- GetExpectedKernelType with MKLDNN --- \n";
 	if (library_ == framework::LibraryType::kPlain &&
 			platform::CanMKLDNNBeUsed(ctx)) {
 		library_ = framework::LibraryType::kMKLDNN;

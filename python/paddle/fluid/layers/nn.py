@@ -640,7 +640,7 @@ def dynamic_gru(input,
         param_attr(ParamAttr|None): The parameter attribute for the learnable
             hidden-hidden weight matrix. Note:
 
-            - The shape of the weight matrix is :math:`(T \\times 3D)`, where
+            - The shape of the weight matrix is :math:`(D \\times 3D)`, where
               :math:`D` is the hidden size.
             - All elements in the weight matrix can be divided into two parts.
               The first part are weights of the update gate and reset gate with
@@ -681,10 +681,12 @@ def dynamic_gru(input,
 
     weight = helper.create_parameter(
         attr=helper.param_attr, shape=[size, 3 * size], dtype=dtype)
+    weight_x = helper.create_parameter(
+        attr=helper.param_attr, shape=[size, 3 * size], dtype=dtype)
     bias = helper.create_parameter(
         attr=helper.bias_attr, shape=[1, 3 * size], dtype=dtype, is_bias=True)
     batch_size = input.shape[0]
-    inputs = {'Input': input, 'Weight': weight, 'Bias': bias}
+    inputs = {'Input': input, 'Weight': weight, 'WeightX': weight_x, 'Bias': bias}
     if h_0 != None:
         assert h_0.shape == (
             batch_size, size
@@ -5297,23 +5299,23 @@ def rank_loss(label, left, right, name=None):
     is a pairwise ranking model with a training sample consisting of a pair
     of documents, A and B. Label P indicates whether A is ranked higher than B
     or not:
- 
+
     P = {0, 1} or {0, 0.5, 1}, where 0.5 means that there is no information
     about the rank of the input pair.
-    
+
     Rank loss layer takes three inputs: left (o_i), right (o_j) and
     label (P_{i,j}). The inputs respectively represent RankNet's output scores
     for documents A and B and the value of label P. The following equation
     computes rank loss C_{i,j} from the inputs:
-    
+
     $$
       C_{i,j} = -\tilde{P_{ij}} * o_{i,j} + \log(1 + e^{o_{i,j}}) \\
       o_{i,j} =  o_i - o_j  \\
       \tilde{P_{i,j}} = \left \{0, 0.5, 1 \right \} \ or \ \left \{0, 1 \right \}
     $$
-    
-    Rank loss layer takes batch inputs with size batch_size (batch_size >= 1).   
- 
+
+    Rank loss layer takes batch inputs with size batch_size (batch_size >= 1).
+
     Args:
         label (Variable): Indicats whether A ranked higher than B or not.
         left (Variable): RankNet's output score for doc A.

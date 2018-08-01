@@ -63,8 +63,8 @@ class GRUKernel : public framework::OpKernel<T> {
 	// std::cout << it << " ";
    // }
    // std::cout << std::endl;
-   std::cout << "--- hd0: " << hidden_dims[0] << std::endl;
-   std::cout << "--- hd1: " << hidden_dims[1] << std::endl;
+   // std::cout << "--- hd0: " << hidden_dims[0] << std::endl;
+   // std::cout << "--- hd1: " << hidden_dims[1] << std::endl;
 
     bool is_reverse = context.Attr<bool>("is_reverse");
     math::LoDTensor2BatchFunctor<DeviceContext, T> to_batch;
