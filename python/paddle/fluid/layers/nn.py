@@ -681,12 +681,9 @@ def dynamic_gru(input,
 
     weight = helper.create_parameter(
         attr=helper.param_attr, shape=[size, 3 * size], dtype=dtype)
-    #  weight_x = helper.create_parameter(
-        #  attr=helper.param_attr, shape=[size, 3 * size], dtype=dtype)
     bias = helper.create_parameter(
         attr=helper.bias_attr, shape=[1, 3 * size], dtype=dtype, is_bias=True)
     batch_size = input.shape[0]
-    #  inputs = {'Input': input, 'Weight': weight, 'WeightX': weight_x, 'Bias': bias}
     inputs = {'Input': input, 'Weight': weight, 'Bias': bias}
     if h_0 != None:
         assert h_0.shape == (

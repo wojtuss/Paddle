@@ -193,30 +193,54 @@ class InferenceTranspiler(object):
         # And a better solution will be considered later.
         program = program.clone()
 
+
     def fuse_fc_gru_mkldnn(self, program):
+        '''
+        Transpile the program by fusing FC+GRU layers with the MKL-DNN GRU.
+
+        The GRU following a FC layer can be replaced by the MKL-DNN GRU.
+        The FC's MUL op weight input 'Y' has to be transformed into the
+        MKL-DNN-based GRU input 'WeightX'.
+
+        The operator transformation is:
+
+        - before:
+
+          - FC (MUL->elementwise_add) -> GRU -> any_other_op
+
+        - after:
+
+          - GRU -> any_other_op
+
+        The transpile stages are:
+
+        1. insert a new MKL-DNN-based GRU operator with `WeightX` input
+           (weights) taken from the MUL's input 'Y' (weights),
+        2. fuse the parameters of MUL and GRU,
+        3. remove the MUL, elementwise_add and the old GRU operators,
+        4. make the input of the deleted MUL operator to be the input of the
+           new GRU operator,
+        5. remove unused variables,
+
+        Args:
+            program (Program): program to transpile
+
+        '''
         use_mkldnn = bool(os.getenv("FLAGS_use_mkldnn", False))
         if not use_mkldnn:
             return
 
         self.block = program.block(0)
 
-        # vvv debug
-        i = 0
-        print("Before")
-        while i < len(self.block.ops):
-            current_op = self.block.ops[i]
-            print("___{}".format(current_op.type))
-            i = i + 1
-        # AAA
-
-
         i = 0
         while i < len(self.block.ops):
+            # find a gru op
             if self.block.ops[i].type == 'gru':
                 gru_op = self.block.ops[i]
                 gru_idx = i
                 add_idx = -1
                 mul_idx = -1
+                # find the preceding elementwise_add op
                 for j in reversed(range(gru_idx)):
                     if self.block.ops[j].type == 'elementwise_add':
                         gru_input_names = gru_op.input_arg_names
@@ -229,6 +253,7 @@ class InferenceTranspiler(object):
                     i += 1
                     continue
 
+                # find the preceding mul op
                 for j in reversed(range(add_idx)):
                     if self.block.ops[j].type == 'mul':
                         add_input_names = gru_op.input_arg_names
@@ -241,24 +266,17 @@ class InferenceTranspiler(object):
                     i += 1
                     continue
 
-                gru_op_new = self._insert_gru(gru_idx + 1, mul_op, gru_op)
-                self._fuse_gru(mul_op, gru_op, gru_op_new)
+                # create and insert a new gru op
+                gru_op_new = self._insert_gru_op(gru_idx + 1, mul_op, gru_op)
+                # fuse mul's and gru's parameters
+                self._fuse_gru(mul_op, gru_op_new)
+                # remove the old operators
                 self.block._remove_op(gru_idx)
                 self.block._remove_op(add_idx)
                 self.block._remove_op(mul_idx)
+                # restart scanning for gru from the deleted mul's index
                 i = mul_idx
-
             i += 1
-
-        # vvv debug
-        i = 0
-        print("After")
-        while i < len(self.block.ops):
-            current_op = self.block.ops[i]
-            print("___{}".format(current_op.type))
-            i = i + 1
-        # AAA
-
 
         self._adjust_input()
         self._remove_unused_var()
@@ -296,7 +314,20 @@ class InferenceTranspiler(object):
         return bias_op
 
 
-    def _insert_gru(self, index, mul_op, gru_op):
+    def _insert_gru_op(self, index, mul_op, gru_op):
+        '''
+        Construct a new GRU operator by copying the old GRU and adding the
+        'WeightX' input taken from the MUL's input 'Y'.
+
+        :param index: insert location of GRU
+        :type  index: Int
+        :param mul_op: MUL operator to copy weights from
+        :type  mul_op: Operator
+        :param gru_op: GRU operator to be copied
+        :type  gru_op: Operator
+        :return: gru_op_new
+        :type:   Operator
+        '''
         def get_op_inputs(op, names):
             result = {}
             for name in names:
@@ -341,12 +372,6 @@ class InferenceTranspiler(object):
 
         tensor = self.scope.find_var(new_param_name).get_tensor()
         tensor.set(np.array(new_param), self.place)
-
-
-    def _fuse_gru(self, mul_op, gru_op, gru_op_new):
-        weight_x = np.array(self.scope.find_var(mul_op.input('Y')[0]).get_tensor())
-        self._update_param(gru_op_new, gru_op_new.input('WeightX'), weight_x, 'gru')
-        self.input_map[gru_op_new.input('Input')[0]] = mul_op.input('X')[0]
 
 
     def _fuse_param(self, current_op, bn_op, bias_op, with_bias):
@@ -397,6 +422,24 @@ class InferenceTranspiler(object):
         # collect the renamed input
         self.input_map[bn_op.output("Y")[0]] = bias_op.output("Out")[0]
 
+
+    def _fuse_gru(self, mul_op, gru_op):
+        '''
+        fuse the MUL's and GRU's weight parameters
+
+        :param mul_op: MUL op to take weights from
+        :type  mul_op: Operator
+        :param gru_op: GRU op to put the weights to
+        :type  gru_op: Operator
+        '''
+        # get data from the mul op weights
+        weight_x = np.array(self.scope.find_var(mul_op.input('Y')[0]).get_tensor())
+        # update weight parameters
+        self._update_param(gru_op, gru_op.input('WeightX'), weight_x, 'gru')
+        # save weight names for update
+        self.input_map[gru_op.input('Input')[0]] = mul_op.input('X')[0]
+
+
     def _adjust_input(self):
         for i in range(len(self.block.ops)):
             current_op = self.block.ops[i]
@@ -404,6 +447,7 @@ class InferenceTranspiler(object):
                 if input_arg in self.input_map:
                     current_op.rename_input(input_arg,
                                             self.input_map[input_arg])
+
 
     def _remove_unused_var(self):
         '''

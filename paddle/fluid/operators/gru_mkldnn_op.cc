@@ -62,6 +62,7 @@ class GRUMKLDNNKernel : public framework::OpKernel<T> {
     auto* bias = ctx.Input<Tensor>("Bias");
     auto* hidden = ctx.Output<LoDTensor>("Hidden");
     hidden->mutable_data<T>(ctx.GetPlace());
+    bool is_reverse = ctx.Attr<bool>("is_reverse");
 
     // Input x
     std::vector<int> in_dims = vectorize2int(input->dims());
@@ -138,14 +139,16 @@ class GRUMKLDNNKernel : public framework::OpKernel<T> {
 		    hidden_format);
 
     auto cell = rnn_cell::desc(mkldnn::algorithm::vanilla_gru);
+    auto direction = is_reverse ?
+	    mkldnn::rnn_direction::unidirectional_right2left :
+	    mkldnn::rnn_direction::unidirectional_left2right;
     auto forward_desc = rnn_forward::desc(
 		    mkldnn::prop_kind::forward_inference,
 		    cell,
-		    mkldnn::rnn_direction::unidirectional_left2right,
+		    direction,
 		    input_md,
 		    h0_md,
 		    weight_x_md,
-		    // mkldnn::zero_md(),
 		    weight_h_md,
 		    bias_md,
 		    hidden_md,
@@ -157,7 +160,6 @@ class GRUMKLDNNKernel : public framework::OpKernel<T> {
 		    input_memory,
 		    h0_memory,
 		    weight_x_memory,
-		    // null_memory_,
 		    weight_h_memory,
 		    bias_memory,
 		    forward_memory,

@@ -409,6 +409,7 @@ void Executor::EnableMKLDNN(const ProgramDesc& program) {
   for (size_t bid = 0; bid < program.Size(); ++bid) {
     auto* block = const_cast<ProgramDesc&>(program).MutableBlock(bid);
     for (auto* op : block->AllOps()) {
+	    // TODO: skip if op is GRU
 	    // if (op->Type() = "gru") {
 		    // continue;
 	    // }
