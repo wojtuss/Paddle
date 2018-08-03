@@ -112,6 +112,11 @@ class GRUOpMaker : public framework::OpProtoAndCheckerMaker {
         "memory can be divided into two parts. The first part are weights of "
         "the update gate and reset gate with shape (D x 2D), and the second "
         "part are weights of output candidate with shape (D x D).");
+    AddInput(
+	"WeightX",
+	"(Tensor) The learnable input weight matrix with shape "
+	"(D x 3D), where D is the hidden size.")
+	    .AsDispensable();
     AddInput("Bias",
              "(Tensor, optional) Bias vector with shape (1 x 3D) concating "
              "bias of the update gate, reset gate and output candidate.")

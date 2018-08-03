@@ -48,6 +48,7 @@ class InferenceTranspiler(object):
             place (Place): inference place
             scope (Scope|None): inference Scope
         '''
+        print("--- Transpiler ---")
         if not isinstance(program, Program):
             raise TypeError("program should be as Program type")
         if not isinstance(place, core.CPUPlace) and not isinstance(
@@ -59,6 +60,7 @@ class InferenceTranspiler(object):
             raise TypeError("scope should be as Scope type or None")
         self.fuse_batch_norm(program, place, scope)
         self.fuse_relu_mkldnn(program)
+        self.fuse_fc_gru_mkldnn(program)
 
     def fuse_relu_mkldnn(self, program):
         '''
@@ -158,7 +160,7 @@ class InferenceTranspiler(object):
         i = 0
         while i < len(self.block.ops) - 2:
             current_op = self.block.ops[i]
-            # TODO(luotao1): consider only conv2d now. fc would be delt later.
+            # TODO(luotao1): consider only conv2d now. fc would be deltt later.
             if current_op.type in ['conv2d']:
                 # TODO(luotao1): consider single chain network now.
                 # For branch network, we counldn't use block.ops[i + 1] as
@@ -191,6 +193,78 @@ class InferenceTranspiler(object):
         # And a better solution will be considered later.
         program = program.clone()
 
+    def fuse_fc_gru_mkldnn(self, program):
+        use_mkldnn = bool(os.getenv("FLAGS_use_mkldnn", False))
+        if not use_mkldnn:
+            return
+
+        self.block = program.block(0)
+
+        # vvv debug
+        i = 0
+        print("Before")
+        while i < len(self.block.ops):
+            current_op = self.block.ops[i]
+            print("___{}".format(current_op.type))
+            i = i + 1
+        # AAA
+
+
+        i = 0
+        while i < len(self.block.ops):
+            if self.block.ops[i].type == 'gru':
+                gru_op = self.block.ops[i]
+                gru_idx = i
+                add_idx = -1
+                mul_idx = -1
+                for j in reversed(range(gru_idx)):
+                    if self.block.ops[j].type == 'elementwise_add':
+                        gru_input_names = gru_op.input_arg_names
+                        add_out_name = self.block.ops[j].output_arg_names[0]
+                        if self.block.ops[j].output_arg_names[0] in gru_op.input_arg_names:
+                            add_op = self.block.ops[j]
+                            add_idx = j
+                            break
+                if add_idx < 0:
+                    i += 1
+                    continue
+
+                for j in reversed(range(add_idx)):
+                    if self.block.ops[j].type == 'mul':
+                        add_input_names = gru_op.input_arg_names
+                        mul_out_name = self.block.ops[j].output_arg_names[0]
+                        if self.block.ops[j].output_arg_names[0] in add_op.input_arg_names:
+                            mul_op = self.block.ops[j]
+                            mul_idx = j
+                            break
+                if mul_idx < 0:
+                    i += 1
+                    continue
+
+                gru_op_new = self._insert_gru(gru_idx + 1, mul_op, gru_op)
+                self._fuse_gru(mul_op, gru_op, gru_op_new)
+                self.block._remove_op(gru_idx)
+                self.block._remove_op(add_idx)
+                self.block._remove_op(mul_idx)
+                i = mul_idx
+
+            i += 1
+
+        # vvv debug
+        i = 0
+        print("After")
+        while i < len(self.block.ops):
+            current_op = self.block.ops[i]
+            print("___{}".format(current_op.type))
+            i = i + 1
+        # AAA
+
+
+        self._adjust_input()
+        self._remove_unused_var()
+        program = program.clone()
+
+
     # ====================== private transpiler functions =====================
     def _insert_bias_op(self, index, current_op, bn_op):
         '''
@@ -221,6 +295,60 @@ class InferenceTranspiler(object):
             attrs={"axis": 1})  # dim_start=1
         return bias_op
 
+
+    def _insert_gru(self, index, mul_op, gru_op):
+        def get_op_inputs(op, names):
+            result = {}
+            for name in names:
+                if op.input(name):
+                    result[name] = self.block.var(op.input(name)[0])
+            return result
+
+        def get_op_outputs(op, names):
+            result = {}
+            for name in names:
+                result[name] = self.block.var(op.output(name)[0])
+            return result
+
+        gru_inputs = get_op_inputs(gru_op, ['Input', 'Weight', 'Bias', 'H0'])
+        gru_inputs['WeightX'] = self.block.var(mul_op.input('Y')[0])
+        gru_outputs = get_op_outputs(gru_op, ['Hidden', 'BatchGate', 'BatchResetHiddenPrev', 'BatchHidden'])
+        gru_attrs = gru_op.all_attrs()
+        gru_attrs['use_mkldnn'] = True
+
+        gru_op_new = self.block._insert_op(
+            index,
+            type = 'gru',
+            inputs = gru_inputs,
+            outputs = gru_outputs,
+            attrs = gru_attrs)
+        return gru_op_new
+
+
+    def _update_param(self, op, old_param_name, new_param, suffix):
+        # For the sake of remaining the original variables the same as before,
+        # create new variables in scope to store the new parameters.
+        old_param_name = old_param_name[0]
+        old_var = self.block.vars[old_param_name]
+        new_param_name = old_param_name + '_fuse_' + suffix
+        new_var = self.block.create_parameter(
+            name=new_param_name.encode('ascii'),
+            type=old_var.type,
+            dtype=old_var.dtype,
+            shape=old_var.shape)
+        op.rename_input(old_param_name, new_param_name)
+        self.scope.var(new_param_name)
+
+        tensor = self.scope.find_var(new_param_name).get_tensor()
+        tensor.set(np.array(new_param), self.place)
+
+
+    def _fuse_gru(self, mul_op, gru_op, gru_op_new):
+        weight_x = np.array(self.scope.find_var(mul_op.input('Y')[0]).get_tensor())
+        self._update_param(gru_op_new, gru_op_new.input('WeightX'), weight_x, 'gru')
+        self.input_map[gru_op_new.input('Input')[0]] = mul_op.input('X')[0]
+
+
     def _fuse_param(self, current_op, bn_op, bias_op, with_bias):
         '''
         fuse the batch_norm_op' parameters to current_op (conv or fc)
@@ -234,23 +362,6 @@ class InferenceTranspiler(object):
         :param with_bias: If current operator has bias, with_bias = 1; otherwise 0.
         :type with_bias: Int
         '''
-
-        def _update_param(op, old_param_name, new_param):
-            # For the sake of remaining the original variables the same as before,
-            # create new variables in scope to store the new parameters.
-            old_param_name = old_param_name[0]
-            old_var = self.block.vars[old_param_name]
-            new_param_name = old_param_name + '_fuse_bn'
-            new_var = self.block.create_parameter(
-                name=new_param_name.encode('ascii'),
-                type=old_var.type,
-                dtype=old_var.dtype,
-                shape=old_var.shape)
-            op.rename_input(old_param_name, new_param_name)
-            self.scope.var(new_param_name)
-
-            tensor = self.scope.find_var(new_param_name).get_tensor()
-            tensor.set(np.array(new_param), self.place)
 
         def _load_param(param_name):
             return np.array(self.scope.find_var(param_name[0]).get_tensor())
@@ -280,8 +391,8 @@ class InferenceTranspiler(object):
         dst_param = dst_param.reshape(current_param.shape)
 
         # update parameters
-        _update_param(current_op, current_op.input("Filter"), dst_param)
-        _update_param(bias_op, bias_op.input("Y"), bias)
+        self._update_param(current_op, current_op.input("Filter"), dst_param, 'bn')
+        self._update_param(bias_op, bias_op.input("Y"), bias, 'bn')
 
         # collect the renamed input
         self.input_map[bn_op.output("Y")[0]] = bias_op.output("Out")[0]

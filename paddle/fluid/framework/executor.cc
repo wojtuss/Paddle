@@ -409,6 +409,9 @@ void Executor::EnableMKLDNN(const ProgramDesc& program) {
   for (size_t bid = 0; bid < program.Size(); ++bid) {
     auto* block = const_cast<ProgramDesc&>(program).MutableBlock(bid);
     for (auto* op : block->AllOps()) {
+	    // if (op->Type() = "gru") {
+		    // continue;
+	    // }
       if (op->HasAttr("use_mkldnn")) {
         op->SetAttr("use_mkldnn", true);
       }
