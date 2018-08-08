@@ -42,6 +42,8 @@ class CompileTimeInferShapeContext : public InferShapeContext {
 
   bool HasOutputs(const std::string &name) const override;
 
+  bool HasAttr(const std::string &name) const override;
+
   AttrReader Attrs() const override;
 
   const std::vector<std::string> &Inputs(
@@ -491,6 +493,11 @@ bool CompileTimeInferShapeContext::HasOutputs(const std::string &name) const {
     if (!block_.HasVarRecursive(output)) return false;
   }
   return true;
+}
+
+bool CompileTimeInferShapeContext::HasAttr(
+   const std::string& name) const {
+  return op_.HasAttr(name);
 }
 
 AttrReader CompileTimeInferShapeContext::Attrs() const {

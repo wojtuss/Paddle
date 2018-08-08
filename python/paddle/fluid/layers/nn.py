@@ -604,7 +604,8 @@ def dynamic_gru(input,
                 is_reverse=False,
                 gate_activation='sigmoid',
                 candidate_activation='tanh',
-                h_0=None):
+                h_0=None,
+                use_mkldnn=False):
     """
     **Gated Recurrent Unit (GRU) Layer**
 
@@ -660,6 +661,7 @@ def dynamic_gru(input,
             zero. This is a tensor with shape (N x D), where N is the number of
             total time steps of input mini-batch feature and D is the hidden
             size.
+        use_mkldnn(bool): Whether to use MKLDNN to accelerate computation
 
     Returns:
         Variable: The hidden state of GRU. The shape is :math:`(T \\times D)`, \
@@ -710,7 +712,8 @@ def dynamic_gru(input,
         attrs={
             'is_reverse': is_reverse,
             'gate_activation': gate_activation,
-            'activation': candidate_activation
+            'activation': candidate_activation,
+            'use_mkldnn': use_mkldnn
         })
     return hidden
 

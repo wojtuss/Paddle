@@ -40,6 +40,7 @@ class InferShapeContext {
 
   virtual bool HasInputs(const std::string &name) const = 0;
   virtual bool HasOutputs(const std::string &name) const = 0;
+  virtual bool HasAttr(const std::string &name) const = 0;
 
   DDim GetInputDim(const std::string &name) const;
   std::vector<DDim> GetInputsDim(const std::string &name) const;
