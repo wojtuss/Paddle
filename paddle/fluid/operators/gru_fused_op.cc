@@ -179,6 +179,13 @@ class GRUFusedOpMaker : public framework::OpProtoAndCheckerMaker {
 		  "(bool, default False) "
 		  "whether bi-direction GRU, i.e. D")
       .SetDefault(false);
+    AddAttr<std::string>(
+      "data_format",
+      "(string, default NCHW) Only used in "
+      "An optional string from: \"NHWC\", \"NCHW\". "
+      "Defaults to \"NHWC\". Specify the data format of the output data, "
+      "the input will be transformed automatically. ")
+      .SetDefault("AnyLayout");  
     AddComment(R"DOC(
 Fused GRU Operator implements calculations of the complete GRU as following:
 
