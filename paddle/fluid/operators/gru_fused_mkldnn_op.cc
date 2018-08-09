@@ -120,7 +120,7 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
     const T* x_data = input->data<T>();
     std::vector<T> batch_x(TMax * N * I, 0); // unpack with zero padding
     T* batch_x_data = batch_x.data();
-#pragma omp parallel for
+#pragma omp parallel for simd
     for (int s = 0; s < N; s++) { // for each sequence
       // get source address of this sequence
       auto ss = x_data + seq_info[s].start * I;
@@ -129,7 +129,7 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
 	auto sst = ss + t * I;
 	auto dst = batch_x_data + t * N * I + s;
         for (int c = 0; c < I; c++) {
-          *(dst + c) = *(sst + c);
+          *(dst + c) = *(sst + c); // memcpy instead?
 	}
       }
     }
@@ -169,7 +169,11 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
 		    to_void_cast(weight_x_data));
 
     // Weight W_h
-    // fixme: WeightX in Paddle is (C x L*D*G*C). Is reorder needed here?    
+    // ToBeDone! WeightH in Paddle is split into 2 parts, i.e. weights of
+    // the update gate and reset gate with shape (D x 2D), and the second
+    // part is weights of output candidate with shape (D x D)
+    // The two parts of memory need be consolidated into one continuous
+    // one before passing to MKLDNN
     auto weight_h_md = MKLDNNMemDesc({L, D, C, G, C}, MKLDNNGetDataType<T>(),
 		    memory::format::ldigo);
     auto weight_h_memory_pd = memory::primitive_desc(weight_h_md,
@@ -215,7 +219,7 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
     auto forward_pd = rnn_forward::primitive_desc(forward_desc, mkldnn_engine);
 
     // create dest memory (TMax,N,C) for GRU forward
-    auto batch_state_memory = mkldnn::memory(forward_pd.dst_layer_primitive_desc());
+    auto batch_hidden_memory = mkldnn::memory(forward_pd.dst_layer_primitive_desc());
     auto forward_op = rnn_forward(
 		    forward_pd,
 		    input_memory,
@@ -223,17 +227,17 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
 		    weight_x_memory,
 		    weight_h_memory,
 		    bias_memory,
-		    batch_state_memory,
+		    batch_hidden_memory,
 		    null_memory_,		    
 		    null_memory_);
 
     std::vector<mkldnn::primitive> pipeline = {forward_op};
     mkldnn::stream(mkldnn::stream::kind::eager).submit(pipeline).wait();
 
-    // reorder batch state memory (TMax,N,C) back to a LoD output (TSum,C)
+    // reorder batch hidden memory (TMax,N,C) back to a LoD output (TSum,C)
 
     hidden->set_layout(DataLayout::kMKLDNN);
-    hidden->set_format((const mkldnn::memory::format)batch_state_memory.get_primitive_desc().desc().data.format);
+    hidden->set_format((const mkldnn::memory::format)batch_hidden_memory.get_primitive_desc().desc().data.format);
     //hidden->set_format(GetMKLDNNFormat(hidden_state_memory));
   }
 };

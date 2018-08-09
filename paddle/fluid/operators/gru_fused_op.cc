@@ -68,13 +68,14 @@ class GRUFusedOp : public framework::OperatorWithKernel {
     int T = input_dims[0];       // Total time steps in batch
     int I = input_dims[1];       // Input feature size
     int C = weight_h_dims[0];    // Hidden state size
+    int G = 3;                   // Gate of GRU is 3
     
-    PADDLE_ENFORCE_EQ(weight_h_dims[1], L * D * 3 * C,
-        "The shape of WeightH matrix must be [C, L * D * 3 * C].");
+    PADDLE_ENFORCE_EQ(weight_h_dims[1], L * D * G * C,
+        "The shape of WeightH matrix must be [C, L * D * G * C].");
     PADDLE_ENFORCE_EQ(weight_x_dims[0], I,
-        "The shape of WeightX matrix must be [I, L * D * 3 * C].");
+        "The shape of WeightX matrix must be [I, L * D * G * C].");
     PADDLE_ENFORCE_EQ(weight_x_dims[1], L * D * 3 * C,
-        "The shape of WeightX matrix must be [I, L * D * 3 * C].");
+        "The shape of WeightX matrix must be [I, L * D * G * C].");
 
     if (ctx->HasInput("H0")) {
       auto h0_dims = ctx->GetInputDim("H0");
@@ -85,12 +86,31 @@ class GRUFusedOp : public framework::OperatorWithKernel {
     if (ctx->HasInput("Bias")) {
       auto bias_dims = ctx->GetInputDim("Bias");
       PADDLE_ENFORCE_EQ(bias_dims[0], 1,
-                        "The shape of Bias must be [1, L * D * 3 * C].");
+                        "The shape of Bias must be [1, L * D * G * C].");
       PADDLE_ENFORCE_EQ(bias_dims[1], L * D * 3 *C,
-                        "The shape of Bias must be [1, L * D * 3 * C].");
+                        "The shape of Bias must be [1, L * D * G * C].");
     }
     ctx->SetOutputDim("Hidden", {T, D * C});
     ctx->ShareLoD("Input", "Hidden");
+  }
+
+  framework::OpKernelType GetExpectedKernelType(
+      const framework::ExecutionContext& ctx) const {
+    framework::LibraryType library{framework::LibraryType::kPlain};
+    std::string data_format = ctx.Attr<std::string>("data_format");
+    framework::DataLayout layout = framework::StringToDataLayout(data_format);
+
+#ifdef PADDLE_WITH_MKLDNN
+    if (library == framework::LibraryType::kPlain &&
+        platform::CanMKLDNNBeUsed(ctx)) {
+      library = framework::LibraryType::kMKLDNN;
+      layout = framework::DataLayout::kMKLDNN;
+    }
+#endif
+
+  return framework::OpKernelType(
+	    framework::ToDataType(ctx.Input<Tensor>("Input")->type()),
+	    ctx.GetPlace(), layout, library);
   }
 };
 
