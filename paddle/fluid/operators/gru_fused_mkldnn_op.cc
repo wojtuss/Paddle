@@ -79,146 +79,156 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
     int D = is_bidir ? 2 : 1;              // 2 if bidirection
     int L = ctx.Attr<int>("stack_level");  // number of layers
     int G = 3;                             // number of gates, 3 for gru
-    int TSum = x_dims[0];                  // total time steps in mini-batch
     int I = x_dims[1];                     // input feature size
     int C = weight_h_dims[0];              // hidden state size 
 
     // Allocate memory for output
     T* hidden_data = static_cast<T*>(hidden->mutable_data<T>(ctx.GetPlace()));
 
-    // Input x is a batch of sequence each with variable length (time step)
-    // Go through all sequences and get start position and len for each seq
+    // Input x is N sequences (sentences) each with variable time steps (words)
+    // Example: x  = (s1,  s2,  s3) i.e. N = 3
+    //          s1 = (w1,  w2,  w3, w4)
+    //          s2 = (w5,  w6,  w7, w8, w9)
+    //          s3 = (w10, w11, w12)
+    //  So x is actually (w1, w2, ..., w12)
+    //  x->lod is (0, 4, 9, 12) where
+    //    4 means s2 start from position 4 (i.e. w5) with len 5 (i.e. 9-4)
+    //    9 means s3 start from position 9 (i.e. w10) with len 3 (i.e. 12 - 9)
+    //    ...
+    //  SeqLen is 12, i.e. total time steps (words) of x
+    //  Batch size "N" is 3, i.e. 3 sequences in this batch
+    int SeqLen = x_dims[0];
     LoD x_lods = input->lod();
     PADDLE_ENFORCE_EQ(x_lods.size(), 1UL, "Only support one level sequence now.");  
     const auto& x_lod = x_lods[0];
+    int N = x_lod.size() - 1;
     
+    // Save position/length/index of each sequence into seq_info[]
+    // index (i.e. seq_id) is needed due to seq_info[] will be reordered later
+    // Example: seq_info should be
+    //          ((0,  4,  0),
+    //           (4,  5,  1),
+    //           (9,  3,  2))
     std::vector<SeqInfo> seq_info;
     for (size_t seq_id = 0; seq_id < x_lod.size() - 1; seq_id++) {
       int seq_len = x_lod[seq_id + 1] - x_lod[seq_id];
       seq_info.emplace_back(x_lod[seq_id], seq_len, seq_id);
     }
-
-    // Now we know batch size N
-    int N = seq_info.size();
     
-    // Sort all sequences in this batch via length
+    // Sort all sequences in this batch via length. Longest first
+    // Example: after sort, seq_info should be
+    //          ((4, 5, 1),
+    //           (0, 4, 0),
+    //           (9, 3, 2))
+    //   it means the longest sequence in x start from position 4 with 5 time
+    //   steps (words) and index 1 (i.e. the 2nd sequence)
     std::sort(seq_info.begin(), seq_info.end(),
               [](SeqInfo a, SeqInfo b) { return a.length > b.length; });
 
-    // Now we know the maximum lengh of all sequences in this batch
-    int TMax = seq_info[0].length;
-    PADDLE_ENFORCE_GT(TMax, 0, "No data in input.");
+    // For RNN, each time step (word) in one sequence (sentences) has to be
+    // processed step by step. However, we can consolidate one time step in
+    // several sequences into one "TimeStep Batch" (i.e. "TBatch") and feed
+    // into RNN computing. Since those sequences may have different length
+    // (number of time steps), we will use the maximum length as TBatch
+    // Example:
+    //           x = (W1,   W2,  W3,  W4,       <- s1
+    //                W5,   W6,  W7,  W8,  W9,  <- s2
+    //                W10, W11, W12)            <- s3
+    //    after reorder (indicated by seq_info[]), it can be regarded as
+    //           x = (W5,   W6,  W7,  W8,  W9,  <- s2
+    //                W1,   W2,  W3,  W4,       <- s3
+    //                W10, W11, W12)
+    //    To feed into RNN, we need transpose it into TimeBatch with padding
+    //    tbatch_x = (W5,   W1,  W10,           <- 1st tbatch
+    //                W6,   W2,  W11,           <- 2nd tbatch
+    //                W7,   W3,  W12,           <- 3rd tbatch
+    //                W8,   W4,    0,           <- 4th tbatch with 0 padding
+    //                W9,    0,    0)           <- 5th tbatch with 0 padding
+    //    TBatch = 5 since the longest sequence (s2) has 5 time steps
+    //    tbatch_x is with shape [TBatch, N, I] where x is [SeqLen, I]
+    int TBatch = seq_info[0].length;
+    PADDLE_ENFORCE_GT(TBatch, 0, "No data in input.");
 
-    // Need reorder input x from [TSum, I] to [TMax, N, I]
-    //   TSum: total time steps in this batch
-    //   TMax: max lengh of all sequences in this batch
-    //      N: batch size
-    //      I: input feature size
-    // example: input x = {s1(w11,w12,w13,w14),
-    //                     s2(w21,w22,w23,w24,w25),
-    //                     s3(w31,w32,w33)}
-    //           s2  - the 2nd sentence in this batch
-    //           w24 - the 4th word in the 2nd sentence
+    // Important! Don't mix "batch" of x (N = 3) with "tbatch" of RNN (TBatch=5)
+  
+    // We use a 3 level LoD to save relationship between x and tbatch_x
+    //     tbatch_lods[0] = {0, 3,  6, 9, 11, 12}
+    //     tbatch_lods[1] = {4, 0,  9,
+    //                       5, 1, 10,
+    //                       6, 2, 11,
+    //                       7, 3,
+    //                       8}
+    //     tbatch_lods[2] = {1, 0, 2} 
     //
-    // In this example, TSum=4+5+3=12; TMax=5 (len of s2); N=3
+    // tbatch_lods[0] is the start position of each tbatch in tbatch_x
+    // tbatch_lods[0][2] = 6 means the 3rd tbatch (w7,w3,w12) is at pos 6
     //
-    // Two operations need here
-    //  1. Unpack: each sequence will be extended to TMax(*I)
-    //  2. Transpose: T1 of all sequences firstly, then T2, T3, ...
+    // tbatch_lods[1] is the raw index in original input x ("0" based!)
+    // tbatch_lods[1][7] = 2 means the 8th position of tbatch_x (W3) correspond to
+    //                       the 3rd position of original x (W3)
     //
-    //  The input x will be reordered by sentence length firstly
-    //           reorderd X = {s2(w21,w22,w23,w24,w25),
-    //                         s1(w11,w12,w13,w14),
-    //                         s3(w31,w32,w33)}
-    //  Then reordered x will be unpack/tranpose to batch_x with [TMax,N,I]
-    //           batch_x = {(w21,w11,w31), <-- First word of all sentences
-    //                      (w22,w12,w32),
-    //                      (w23,w13,w33),
-    //                      (w24,w14,  0), <-- 0 padding for short sentence
-    //                      (w25,  0,  0)}
-    // 
-    //  batch_x will be feeded into MKLDNN RNN primitive as input
-    //  1st batch (w21,w11,w31) in batch_x means 1st time step data feeding into RNN.
-    //  !!! Note !!!
-    //  1st "batch" in batch_x (w21,w11,w31) != 1st "batch" in x (w11,w12,w13,w14)
-    //
-    //  batch_lods (3 level LoD) will be used to save above order info in batch_x
-    //     batch_lods[0] = {0, 3,  6, 9, 11, 12}
-    //     batch_lods[1] = {4, 0,  9,
-    //                      5, 1, 10,
-    //                      6, 2, 11,
-    //                      7, 3,
-    //                      8}
-    //     batch_lods[2] = {1, 0, 2} 
-    // batch_lods[0][2] = 6 means the 3rd batch in batch_x (w23,w13,w33) is at position
-    // 6, i.e. after two batches (w21,w11,w31) and (w22,w12,w32)
-    // batch_lods[1][7] = 2 means the 3rd (2+1, 0 based) word "w13"  in original x
-    // is now in position 7 of new batch_x
-    // batch_lods[2] is the order of original setence, i.e. {s2, s1, s3}
+    // tbatch_lods[2] is the order of original setence, i.e. {s2, s1, s3}
+    paddle::framework::LoD tbatch_lods;
+    tbatch_lods.emplace_back(std::vector<size_t>{0});
+    tbatch_lods.emplace_back(std::vector<size_t>{0});
+    tbatch_lods.emplace_back(std::vector<size_t>{0});
+    tbatch_lods[0].resize(static_cast<size_t>(TBatch+1));
+    tbatch_lods[1].resize(static_cast<size_t>(SeqLen+1));
+    tbatch_lods[2].resize(seq_info.size());
 
-    // batch_lod is a 3 level LoD
-    paddle::framework::LoD batch_lods;
-    batch_lods.emplace_back(std::vector<size_t>{0});
-    batch_lods.emplace_back(std::vector<size_t>{0});
-    batch_lods.emplace_back(std::vector<size_t>{0});
-    // batch_lods[0] is the start position of each time step in batch_x
-    batch_lods[0].resize(static_cast<size_t>(TMax+1));
-    // batch_lods[1] is the raw index in input x
-    batch_lods[1].resize(static_cast<size_t>(TSum));
-    // batch_lods[2] is the sort order
-    batch_lods[2].resize(seq_info.size());
-
-    std::vector<int> batch_lens;
-    batch_lens.resize(TMax);
+    // We use tbatch_lens to record the len of each tbatch
+    // 0 < tbatch_lens[0..TBatch-1] <= N
+    std::vector<int> tbatch_lens;
+    tbatch_lens.resize(TBatch);
     
-    // compute batch_lod and batch_lens which will be used in output
-    size_t* batch_starts = batch_lods[0].data();
-    size_t* seq2batch_idx = batch_lods[1].data();
-    size_t* seq_order = batch_lods[2].data();
-    batch_starts[0] = 0;
-    for (int t = 0; t < TMax; t++) { // each time step
-      auto batch_id = static_cast<int>(batch_starts[t]);
-      int i;
-      for (i = 0; i < N; ++i) { // each sentence
-        int seq_len = seq_info[i].length;
-        int start = seq_info[i].start;
-        if (t < seq_len) {
-          seq2batch_idx[batch_id] = start + t;
-          batch_id++;
+    // compute tbatch_lods and tbatch_lens which will be used in output
+    size_t* tbatch_starts = tbatch_lods[0].data();
+    size_t* tbatch2seq_idx = tbatch_lods[1].data();
+    size_t* seq_order = tbatch_lods[2].data();
+    tbatch_starts[0] = 0;
+    for (int tb = 0; tb < TBatch; tb++) { // each TimeStep Batch
+      auto offset = static_cast<int>(tbatch_starts[tb]);
+      int seq;
+      for (seq = 0; seq < N; ++seq) { // each sequence in current TimeStep batch
+        int seq_len = seq_info[seq].length;
+        int seq_start = seq_info[seq].start;
+        if (tb < seq_len) {
+          tbatch2seq_idx[offset] = seq_start + tb;
+          offset++;
         } else {
           break;
         }
       }
-      batch_starts[t + 1] = static_cast<size_t>(batch_id);
-      batch_lens[t] = i + 1;
+      tbatch_starts[tb + 1] = static_cast<size_t>(offset);
+      tbatch_lens[tb] = seq + 1;
     }
     for (size_t i = 0; i < seq_info.size(); ++i) {
       seq_order[i] = seq_info[i].seq_idx;
     }
 
-    // reorder input x to batch_x 
+    // reorder input x to tbatch_x 
     const T* x_data = input->data<T>();
-    std::vector<T> batch_x(TMax * N * I, 0); // unpack with zero padding
-    T* batch_x_data = batch_x.data();
-    for (int s = 0; s < N; s++) { // for each sequence
+    std::vector<T> tbatch_x(TBatch * N * I, 0); // unpack with zero padding
+    T* tbatch_x_data = tbatch_x.data();
+    for (int seq = 0; seq < N; seq++) { // for each sequence
       // get source address of this sequence
-      auto ss = x_data + seq_info[s].start * I;
-      for (int t = 0; t < seq_info[s].length; t++) { // for each time step
+      auto ss = x_data + seq_info[seq].start * I;
+      for (int tb = 0; tb < seq_info[seq].length; tb++) { // for each time step
         // get src/target address for this time step in this sequence
-        auto sst = ss + t * I;
-        auto dst = batch_x_data + (t * N + s) * I;
+        auto sst = ss + tb * I;
+        auto dst = tbatch_x_data + (tb * N + seq) * I;
 	memcpy(dst, sst, I * sizeof(T));
       }
     }
 
     // Create mkldnn input memory with reordered data
     auto input_format = memory::format::tnc;
-    auto input_md = MKLDNNMemDesc({TMax, N, I},
+    auto input_md = MKLDNNMemDesc({TBatch, N, I},
 		    MKLDNNGetDataType<T>(), input_format);
     auto input_memory_pd = memory::primitive_desc(input_md,
 		    mkldnn_engine);
     auto input_mpd = memory::primitive_desc(input_md, mkldnn_engine);
-    auto input_memory = memory(input_mpd, to_void_cast(batch_x_data));
+    auto input_memory = memory(input_mpd, to_void_cast(tbatch_x_data));
 
     // Input h0
     auto h0_md = mkldnn::zero_md();
@@ -268,7 +278,7 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
     auto bias_memory = memory(bias_memory_pd, to_void_cast(bias_data));
 
     // Hidden h (output)
-    auto hidden_md = MKLDNNMemDesc({TMax, N, C}, MKLDNNGetDataType<T>(),
+    auto hidden_md = MKLDNNMemDesc({TBatch, N, C}, MKLDNNGetDataType<T>(),
                  		   memory::format::tnc);
 
     // create GRU forward primitive desc
@@ -295,8 +305,8 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
 		    mkldnn::zero_md());
     auto forward_pd = rnn_forward::primitive_desc(forward_desc, mkldnn_engine);
 
-    // create dest memory (TMax,N,C) for GRU forward
-    auto batch_hidden_memory = mkldnn::memory(forward_pd.dst_layer_primitive_desc());
+    // create dest memory (TBatch,N,C) for GRU forward
+    auto tbatch_hidden_memory = mkldnn::memory(forward_pd.dst_layer_primitive_desc());
     auto forward_op = rnn_forward(
 		    forward_pd,
 		    input_memory,
@@ -304,33 +314,33 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
 		    weight_x_memory,
 		    weight_h_memory,
 		    bias_memory,
-		    batch_hidden_memory,
+		    tbatch_hidden_memory,
 		    null_memory_,		    
 		    null_memory_);
 
     std::vector<mkldnn::primitive> pipeline = {forward_op};
     mkldnn::stream(mkldnn::stream::kind::eager).submit(pipeline).wait();
 
-    // reorder batch hidden data (TMax,N,C) back to hidden data (TSum,C)
-    T *batch_hidden_data = static_cast<T*>(batch_hidden_memory.get_data_handle());
+    // reorder batch hidden data (TBatch,N,C) back to hidden data (SeqLen,C)
+    T *tbatch_hidden_data = static_cast<T*>(tbatch_hidden_memory.get_data_handle());
     int offset = 0;
-    for (int t = 0; t < TMax; t++) { // for each time step
-      int i;
-      for (i = 0; i < batch_lens[i]; i++) { // for each word at specified time step
-	memcpy(hidden_data + offset * C,
-	       batch_hidden_data + (t * N + i) * C,
-	       C * sizeof(T));
+    for (int tb = 0; tb < TBatch; tb++) { // for each time step
+      for (int seq = 0; seq < tbatch_lens[tb]; seq++) {
+	// for each word at specified time step
+	auto dst = hidden_data + offset * C;
+	auto src = tbatch_hidden_data + (tb * N + seq) * C;
+	memcpy(dst, src, C * sizeof(T));
       }
-      offset += batch_lens[i];
+      offset += tbatch_lens[tb];
     }
-    PADDLE_ENFORCE_EQ(offset, TSum,
+    PADDLE_ENFORCE_EQ(offset, SeqLen,
 		      "Hidden output should have same length as input x");
 
     // Need set LoD to output tensor
-    hidden->set_lod(batch_lods);
+    hidden->set_lod(tbatch_lods);
     
     hidden->set_layout(DataLayout::kMKLDNN);
-    hidden->set_format((const mkldnn::memory::format)batch_hidden_memory.get_primitive_desc().desc().data.format);
+    hidden->set_format((const mkldnn::memory::format)tbatch_hidden_memory.get_primitive_desc().desc().data.format);
     //hidden->set_format(GetMKLDNNFormat(hidden_state_memory));
   }
 };
@@ -342,5 +352,3 @@ namespace ops = paddle::operators;
 
 REGISTER_OP_KERNEL(gru_fused, MKLDNN, ::paddle::platform::CPUPlace,
 	ops::GRUFusedMKLDNNKernel<float>)                           
-                                                                                 
-
