@@ -199,9 +199,11 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
           break;
         }
       }
+
       tbatch_starts[tb + 1] = static_cast<size_t>(offset);
-      tbatch_lens[tb] = seq + 1;
+      tbatch_lens[tb] = seq;
     }
+
     for (size_t i = 0; i < seq_info.size(); ++i) {
       seq_order[i] = seq_info[i].seq_idx;
     }
