@@ -173,7 +173,7 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
     tbatch_lods.emplace_back(std::vector<size_t>{0});
     tbatch_lods.emplace_back(std::vector<size_t>{0});
     tbatch_lods[0].resize(static_cast<size_t>(TBatch+1));
-    tbatch_lods[1].resize(static_cast<size_t>(SeqLen+1));
+    tbatch_lods[1].resize(static_cast<size_t>(SeqLen));
     tbatch_lods[2].resize(seq_info.size());
 
     // We use tbatch_lens to record the len of each tbatch
@@ -193,7 +193,7 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
         int seq_len = seq_info[seq].length;
         int seq_start = seq_info[seq].start;
         if (tb < seq_len) {
-          tbatch2seq_idx[offset] = seq_start + tb;
+          tbatch2seq_idx[offset] = is_reverse ? seq_start + seq_len - 1 - tb : seq_start + tb;
           offset++;
         } else {
           break;
@@ -219,7 +219,7 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
         // get src/target address for this time step in this sequence
         auto sst = ss + tb * I;
         auto dst = tbatch_x_data + (tb * N + seq) * I;
-	memcpy(dst, sst, I * sizeof(T));
+	    memcpy(dst, sst, I * sizeof(T));
       }
     }
 
@@ -341,6 +341,14 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
     // Need set LoD to output tensor
     hidden->set_lod(tbatch_lods);
     
+    PADDLE_ENFORCE_GT(hidden->lod().size(), 2UL,
+                      "The LoD of LoDTensor should inlcude at least 2-level "
+                      "sequence information.");
+
+    PADDLE_ENFORCE_EQ(
+        hidden->lod()[1].size(), static_cast<size_t>(hidden->dims()[0]),
+        "The LoD information should be consistent with the dims.");
+
     hidden->set_layout(DataLayout::kMKLDNN);
     hidden->set_format((const mkldnn::memory::format)tbatch_hidden_memory.get_primitive_desc().desc().data.format);
     //hidden->set_format(GetMKLDNNFormat(hidden_state_memory));
