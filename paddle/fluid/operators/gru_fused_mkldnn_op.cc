@@ -278,27 +278,25 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
     // part is weights of output candidate with shape (D x D)
     // The two parts of memory need be consolidated into one continuous
     // one before passing to MKLDNN
-
     const T* weight_h_data = weight_h->data<T>();
     std::vector<T> mkldnn_weight_h;
     mkldnn_weight_h.resize(G * C * C);
     auto mkldnn_weight_h_data = mkldnn_weight_h.data();
 
-    auto src_iter = weight_h_data;
+    auto src1_iter = weight_h_data;
+    auto src2_iter = weight_h_data + 2 * C * C;
     auto dst_iter = mkldnn_weight_h_data;
 
     for (size_t c = 0; c < C; ++c) {
-      memcpy(dst_iter, src_iter, C * sizeof(T));
+      memcpy(dst_iter, src1_iter, 2 * C * sizeof(T));
+      memcpy(dst_iter + 2 * C, src2_iter, C * sizeof(T));
 
-      src_iter += C;
-      memcpy(dst_iter + C * C, src_iter, C * sizeof(T));
-
-      src_iter += C;
-      dst_iter += C;
+      src1_iter += 2 * C;
+      src2_iter += C;
+      dst_iter += 3 * C;
     }
 
-    memcpy(dst_iter + C * C, src_iter, C * C * sizeof(T));
-
+    //    memcpy(dst_iter + C * C, src_iter, C * C * sizeof(T));
     auto weight_h_md = MKLDNNMemDesc({L, D, C, G, C}, MKLDNNGetDataType<T>(),
                                      memory::format::ldigo);
     auto weight_h_memory_pd =
@@ -363,7 +361,6 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
       memcpy(hidden_data + index[seq] * C, tbatch_hidden_data + seq * C,
              C * sizeof(T));
     }
-
     //    PADDLE_ENFORCE_EQ(offset, SeqLen,
     //                      "Hidden output should have same length as input x");
 
