@@ -69,14 +69,14 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
     auto* bias = ctx.Input<Tensor>("Bias");
     auto* hidden = ctx.Output<LoDTensor>("Hidden");
     bool is_reverse = ctx.Attr<bool>("is_reverse");
-    bool is_bidir = ctx.Attr<bool>("is_bidirection");
+    // bool is_bidir = ctx.Attr<bool>("is_bidirection");
 
     // Get dimensions for input / weight / bias / output
     std::vector<int> x_dims = vectorize2int(input->dims());
     std::vector<int> weight_x_dims = vectorize2int(weight_x->dims());
     std::vector<int> weight_h_dims = vectorize2int(weight_h->dims());
 
-    int D = is_bidir ? 2 : 1;              // 2 if bidirection
+    int D = /*is_bidir ? 2 :*/ 1;          // 2 if bidirection
     int L = ctx.Attr<int>("stack_level");  // number of layers
     int G = 3;                             // number of gates, 3 for gru
     int I = x_dims[1];                     // input feature size
@@ -216,13 +216,17 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
     const T* x_data = input->data<T>();
     std::vector<T> tbatch_x(TBatch * N * I, 0);  // unpack with zero padding
     T* tbatch_x_data = tbatch_x.data();
+    auto tbatch_size = N * I;
+
     for (int seq = 0; seq < N; seq++) {  // for each sequence
       // get source address of this sequence
       auto ss = x_data + seq_info[seq].start * I;
+      auto seq_idx = seq * I;
+
       for (int tb = 0; tb < seq_info[seq].length; tb++) {  // for each time step
         // get src/target address for this time step in this sequence
         auto sst = ss + tb * I;
-        auto dst = tbatch_x_data + (tb * N + seq) * I;
+        auto dst = tbatch_x_data + tb * tbatch_size + seq_idx;
         memcpy(dst, sst, I * sizeof(T));
       }
     }
@@ -242,6 +246,12 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
     if (h0) {
       std::vector<int> h0_dims = vectorize2int(h0->dims());
       // fixme: H0 in Paddle GRU op is (N x LDSC). Is reorder needed here?
+      // tpatejko: by default GRU layer in PaddlePaddle is not stacked so
+      // L=1. D=1: PaddlePaddle GRU cell can run from left to right or
+      // from right to left (is_reverse attribute indicates it) but
+      // the operator is not bidirectional. Bidirectionality is
+      // handled by the user.
+      // The format is 1x1x1xNxC.
       auto h0_format = memory::format::ldsnc;
       auto h0_md =
           MKLDNNMemDesc({L, D, 1, N, C}, MKLDNNGetDataType<T>(), h0_format);
@@ -252,7 +262,8 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
     }
 
     // Weight W_x
-    // fixme: WeightX in Paddle is (C x L*D*G*C). Is reorder needed here?
+    // fixme: WeightX in Paddle is (I x L*D*G*C). Is reorder needed here?
+    // In PaddlePaddle GRU, L=1, D=1, G=3
     auto weight_x_md = MKLDNNMemDesc({L, D, I, G, C}, MKLDNNGetDataType<T>(),
                                      memory::format::ldigo);
     auto weight_x_memory_pd =
@@ -267,13 +278,33 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
     // part is weights of output candidate with shape (D x D)
     // The two parts of memory need be consolidated into one continuous
     // one before passing to MKLDNN
+
+    const T* weight_h_data = weight_h->data<T>();
+    std::vector<T> mkldnn_weight_h;
+    mkldnn_weight_h.resize(G * C * C);
+    auto mkldnn_weight_h_data = mkldnn_weight_h.data();
+
+    auto src_iter = weight_h_data;
+    auto dst_iter = mkldnn_weight_h_data;
+
+    for (size_t c = 0; c < C; ++c) {
+      memcpy(dst_iter, src_iter, C * sizeof(T));
+
+      src_iter += C;
+      memcpy(dst_iter + C * C, src_iter, C * sizeof(T));
+
+      src_iter += C;
+      dst_iter += C;
+    }
+
+    memcpy(dst_iter + C * C, src_iter, C * C * sizeof(T));
+
     auto weight_h_md = MKLDNNMemDesc({L, D, C, G, C}, MKLDNNGetDataType<T>(),
                                      memory::format::ldigo);
     auto weight_h_memory_pd =
         memory::primitive_desc(weight_h_md, mkldnn_engine);
-    const T* weight_h_data = weight_h->data<T>();
     auto weight_h_memory =
-        memory(weight_h_memory_pd, to_void_cast(weight_h_data));
+        memory(weight_h_memory_pd, to_void_cast(mkldnn_weight_h_data));
 
     // Bias
     // fixme: Bias in Paddle is (1 x L*D*G*C). Is reorder needed here?
@@ -290,13 +321,13 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
     // create GRU forward primitive desc
     auto cell = rnn_cell::desc(mkldnn::algorithm::vanilla_gru);
     rnn_direction direction;
-    if (is_bidir) {
-      // Fix me: now hardcode "concat". Should add "sum" also
-      direction = rnn_direction::bidirectional_concat;
-    } else {
-      direction = is_reverse ? rnn_direction::unidirectional_right2left
-                             : rnn_direction::unidirectional_left2right;
-    }
+    //    if (is_bidir) {
+    // Fix me: now hardcode "concat". Should add "sum" also
+    //      direction = rnn_direction::bidirectional_concat;
+    //    } else {
+    direction = is_reverse ? rnn_direction::unidirectional_right2left
+                           : rnn_direction::unidirectional_left2right;
+    //    }
     auto forward_desc = rnn_forward::desc(
         mkldnn::prop_kind::forward_inference, cell, direction, input_md, h0_md,
         weight_x_md, weight_h_md, bias_md, hidden_md, mkldnn::zero_md());
@@ -315,18 +346,26 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
     // reorder batch hidden data (TBatch,N,C) back to hidden data (SeqLen,C)
     T* tbatch_hidden_data =
         static_cast<T*>(tbatch_hidden_memory.get_data_handle());
-    int offset = 0;
+    //    int offset = 0;
+    /*
     for (int tb = 0; tb < TBatch; tb++) {  // for each time step
       for (int seq = 0; seq < tbatch_lens[tb]; seq++) {
         // for each word at specified time step
-        auto dst = hidden_data + offset * C;
+        auto dst = hidden_data + seq * C;
         auto src = tbatch_hidden_data + (tb * N + seq) * C;
         memcpy(dst, src, C * sizeof(T));
       }
       offset += tbatch_lens[tb];
     }
-    PADDLE_ENFORCE_EQ(offset, SeqLen,
-                      "Hidden output should have same length as input x");
+    */
+    size_t* index = tbatch_lods[1].data();
+    for (int seq = 0; seq < SeqLen; seq++) {
+      memcpy(hidden_data + index[seq] * C, tbatch_hidden_data + seq * C,
+             C * sizeof(T));
+    }
+
+    //    PADDLE_ENFORCE_EQ(offset, SeqLen,
+    //                      "Hidden output should have same length as input x");
 
     PADDLE_ENFORCE_GT(tbatch_lods.size(), 2UL,
                       "The LoD of LoDTensor should inlcude at least 2-level "
