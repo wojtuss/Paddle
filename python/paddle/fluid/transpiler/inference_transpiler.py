@@ -18,7 +18,6 @@ from .. import core
 from ..framework import Program
 from ..executor import global_scope
 
-
 #   Copyright (c) 2018 PaddlePaddle Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -81,7 +80,20 @@ class InferenceTranspiler(object):
             raise TypeError("scope should be as Scope type or None")
         self._fuse_batch_norm(program, place, scope)
         self._fuse_relu_mkldnn(program)
+
+        i = 0
+        print("Before")
+        while i < len(self.block.ops):
+            current_op = self.block.ops[i]
+            print("___{}".format(current_op.type))
+            i = i + 1
         self.fuse_fc_gru_mkldnn(program)
+        i = 0
+        print("After")
+        while i < len(self.block.ops):
+            current_op = self.block.ops[i]
+            print("___{}".format(current_op.type))
+            i = i + 1
 
     def _fuse_relu_mkldnn(self, program):
         '''
@@ -214,7 +226,6 @@ class InferenceTranspiler(object):
         # And a better solution will be considered later.
         program = program.clone()
 
-
     def fuse_fc_gru_mkldnn(self, program):
         '''
         Transpile the program by fusing FC+GRU layers with the MKL-DNN GRU.
@@ -266,7 +277,8 @@ class InferenceTranspiler(object):
                     if self.block.ops[j].type == 'elementwise_add':
                         gru_input_names = gru_op.input_arg_names
                         add_out_name = self.block.ops[j].output_arg_names[0]
-                        if self.block.ops[j].output_arg_names[0] in gru_op.input_arg_names:
+                        if self.block.ops[j].output_arg_names[
+                                0] in gru_op.input_arg_names:
                             add_op = self.block.ops[j]
                             add_idx = j
                             break
@@ -277,9 +289,9 @@ class InferenceTranspiler(object):
                 # find the preceding mul op
                 for j in reversed(range(add_idx)):
                     if self.block.ops[j].type == 'mul':
-                        add_input_names = gru_op.input_arg_names
                         mul_out_name = self.block.ops[j].output_arg_names[0]
-                        if self.block.ops[j].output_arg_names[0] in add_op.input_arg_names:
+                        if self.block.ops[j].output_arg_names[
+                                0] in add_op.input_arg_names:
                             mul_op = self.block.ops[j]
                             mul_idx = j
                             break
@@ -304,7 +316,6 @@ class InferenceTranspiler(object):
         self._adjust_input()
         self._remove_unused_var()
         program = program.clone()
-
 
     # ====================== private transpiler functions =====================
     def _insert_bias_op(self, index, current_op, bn_op):
@@ -336,7 +347,6 @@ class InferenceTranspiler(object):
             attrs={"axis": 1})  # dim_start=1
         return bias_op
 
-
     def _insert_gru_op(self, index, mul_op, gru_op):
         '''
         Construct a new GRU operator by copying the old GRU and adding the
@@ -351,6 +361,7 @@ class InferenceTranspiler(object):
         :return: gru_op_new
         :type:   Operator
         '''
+
         def get_op_inputs(op, names):
             result = {}
             for name in names:
@@ -364,11 +375,11 @@ class InferenceTranspiler(object):
                 result[name] = self.block.var(op.output(name)[0])
             return result
 
-        gru_inputs = get_op_inputs(gru_op, ['Bias','Weight','H0'])
+        gru_inputs = get_op_inputs(gru_op, ['Bias', 'Weight', 'H0'])
         gru_inputs['WeightX'] = self.block.var(mul_op.input('Y')[0])
         gru_inputs['WeightH'] = gru_inputs.pop('Weight')
         gru_inputs['Input'] = self.block.var(mul_op.input('X')[0])
-        gru_outputs = {} 
+        gru_outputs = {}
         gru_outputs['Hidden'] = self.block.var(gru_op.output('Hidden')[0])
         gru_attrs = gru_op.all_attrs()
         gru_attrs['use_mkldnn'] = True
@@ -377,12 +388,11 @@ class InferenceTranspiler(object):
 
         gru_op_new = self.block._insert_op(
             index,
-            type = 'gru_fused',
-            inputs = gru_inputs,
-            outputs = gru_outputs,
-            attrs = gru_attrs)
+            type='gru_fused',
+            inputs=gru_inputs,
+            outputs=gru_outputs,
+            attrs=gru_attrs)
         return gru_op_new
-
 
     def _update_param(self, op, old_param_name, new_param, suffix):
         # For the sake of remaining the original variables the same as before,
@@ -400,7 +410,6 @@ class InferenceTranspiler(object):
 
         tensor = self.scope.find_var(new_param_name).get_tensor()
         tensor.set(np.array(new_param), self.place)
-
 
     def _fuse_param(self, current_op, bn_op, bias_op, with_bias):
         '''
@@ -444,12 +453,12 @@ class InferenceTranspiler(object):
         dst_param = dst_param.reshape(current_param.shape)
 
         # update parameters
-        self._update_param(current_op, current_op.input("Filter"), dst_param, 'bn')
+        self._update_param(current_op,
+                           current_op.input("Filter"), dst_param, 'bn')
         self._update_param(bias_op, bias_op.input("Y"), bias, 'bn')
 
         # collect the renamed input
         self.input_map[bn_op.output("Y")[0]] = bias_op.output("Out")[0]
-
 
     def _fuse_gru(self, mul_op, gru_op):
         '''
@@ -461,12 +470,13 @@ class InferenceTranspiler(object):
         :type  gru_op: Operator
         '''
         # get data from the mul op weights
-        weight_x = np.array(self.scope.find_var(mul_op.input('Y')[0]).get_tensor())
+        weight_x = np.array(
+            self.scope.find_var(mul_op.input('Y')[0]).get_tensor())
         # update weight parameters
         self._update_param(gru_op, gru_op.input('WeightX'), weight_x, 'gru')
         # save weight names for update
         self.input_map[gru_op.input('Input')[0]] = mul_op.input('X')[0]
-    
+
     def _fuse_gru_bias(self, add_op, gru_op):
         '''
         fuse the FC's and GRU's bias parameters
@@ -477,14 +487,14 @@ class InferenceTranspiler(object):
         :type  gru_op: Operator
         '''
         # get data from the add op and gru op weights
-        bias_fc = np.array(self.scope.find_var(add_op.input('Y')[0]).get_tensor())
-        bias_gru = np.array(self.scope.find_var(gru_op.input('Bias')[0]).get_tensor())
+        bias_fc = np.array(
+            self.scope.find_var(add_op.input('Y')[0]).get_tensor())
+        bias_gru = np.array(
+            self.scope.find_var(gru_op.input('Bias')[0]).get_tensor())
         # Add two bias to get a new bias for fused gru
         bias_new = np.add(bias_fc, bias_gru)
         # update weight parameters
         self._update_param(gru_op, gru_op.input('Bias'), bias_new, 'gru')
-     
-
 
     def _adjust_input(self):
         for i in range(len(self.block.ops)):
@@ -493,7 +503,6 @@ class InferenceTranspiler(object):
                 if input_arg in self.input_map:
                     current_op.rename_input(input_arg,
                                             self.input_map[input_arg])
-
 
     def _remove_unused_var(self):
         '''
