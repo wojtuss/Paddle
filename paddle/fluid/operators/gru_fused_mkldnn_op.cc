@@ -216,17 +216,15 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
     const T* x_data = input->data<T>();
     std::vector<T> tbatch_x(TBatch * N * I, 0);  // unpack with zero padding
     T* tbatch_x_data = tbatch_x.data();
-    auto tbatch_size = N * I;
 
     for (int seq = 0; seq < N; seq++) {  // for each sequence
       // get source address of this sequence
       auto ss = x_data + seq_info[seq].start * I;
-      auto seq_idx = seq * I;
 
       for (int tb = 0; tb < seq_info[seq].length; tb++) {  // for each time step
         // get src/target address for this time step in this sequence
         auto sst = ss + tb * I;
-        auto dst = tbatch_x_data + tb * tbatch_size + seq_idx;
+        auto dst = tbatch_x_data + (tb * N + seq) * I;
         memcpy(dst, sst, I * sizeof(T));
       }
     }
@@ -240,26 +238,26 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
     auto input_memory = memory(input_mpd, to_void_cast(tbatch_x_data));
 
     // Input h0
-    auto h0_md = mkldnn::zero_md();
-    const T* h0_data;
-    auto h0_memory = null_memory_;
-    if (h0) {
-      std::vector<int> h0_dims = vectorize2int(h0->dims());
-      // fixme: H0 in Paddle GRU op is (N x LDSC). Is reorder needed here?
-      // tpatejko: by default GRU layer in PaddlePaddle is not stacked so
-      // L=1. D=1: PaddlePaddle GRU cell can run from left to right or
-      // from right to left (is_reverse attribute indicates it) but
-      // the operator is not bidirectional. Bidirectionality is
-      // handled by the user.
-      // The format is 1x1x1xNxC.
-      auto h0_format = memory::format::ldsnc;
-      auto h0_md =
-          MKLDNNMemDesc({L, D, 1, N, C}, MKLDNNGetDataType<T>(), h0_format);
-      auto h0_memory_pd = memory::primitive_desc(h0_md, mkldnn_engine);
-      auto h0_mpd = memory::primitive_desc(h0_md, mkldnn_engine);
-      h0_data = h0->data<T>();
-      h0_memory = memory(h0_mpd, to_void_cast(h0_data));
-    }
+    //    auto h0_md = mkldnn::zero_md();
+    //    const T* h0_data;
+    //    auto h0_memory = null_memory_;
+    //    if (h0) {
+    std::vector<int> h0_dims = vectorize2int(h0->dims());
+    // fixme: H0 in Paddle GRU op is (N x LDSC). Is reorder needed here?
+    // tpatejko: by default GRU layer in PaddlePaddle is not stacked so
+    // L=1. D=1: PaddlePaddle GRU cell can run from left to right or
+    // from right to left (is_reverse attribute indicates it) but
+    // the operator is not bidirectional. Bidirectionality is
+    // handled by the user.
+    // The format is 1x1x1xNxC.
+    auto h0_format = memory::format::ldsnc;
+    auto h0_md =
+        MKLDNNMemDesc({L, D, 1, N, C}, MKLDNNGetDataType<T>(), h0_format);
+    auto h0_memory_pd = memory::primitive_desc(h0_md, mkldnn_engine);
+    auto h0_mpd = memory::primitive_desc(h0_md, mkldnn_engine);
+    auto h0_data = h0->data<T>();
+    auto h0_memory = memory(h0_mpd, to_void_cast(h0_data));
+    //    }
 
     // Weight W_x
     // fixme: WeightX in Paddle is (I x L*D*G*C). Is reorder needed here?
@@ -296,7 +294,6 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
       dst_iter += 3 * C;
     }
 
-    //    memcpy(dst_iter + C * C, src_iter, C * C * sizeof(T));
     auto weight_h_md = MKLDNNMemDesc({L, D, C, G, C}, MKLDNNGetDataType<T>(),
                                      memory::format::ldigo);
     auto weight_h_memory_pd =
@@ -317,15 +314,11 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
                                    memory::format::tnc);
 
     // create GRU forward primitive desc
-    auto cell = rnn_cell::desc(mkldnn::algorithm::vanilla_gru);
+    auto cell = rnn_cell::desc{mkldnn::algorithm::vanilla_gru};
     rnn_direction direction;
-    //    if (is_bidir) {
-    // Fix me: now hardcode "concat". Should add "sum" also
-    //      direction = rnn_direction::bidirectional_concat;
-    //    } else {
     direction = is_reverse ? rnn_direction::unidirectional_right2left
                            : rnn_direction::unidirectional_left2right;
-    //    }
+
     auto forward_desc = rnn_forward::desc(
         mkldnn::prop_kind::forward_inference, cell, direction, input_md, h0_md,
         weight_x_md, weight_h_md, bias_md, hidden_md, mkldnn::zero_md());
@@ -344,23 +337,20 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
     // reorder batch hidden data (TBatch,N,C) back to hidden data (SeqLen,C)
     T* tbatch_hidden_data =
         static_cast<T*>(tbatch_hidden_memory.get_data_handle());
-    //    int offset = 0;
-    /*
-    for (int tb = 0; tb < TBatch; tb++) {  // for each time step
+
+    auto index = tbatch_lods[1];
+    auto tbatch_ptr = tbatch_hidden_data;
+    int index_idx = 0;
+
+    for (int tb = 0; tb < TBatch; tb++) {
       for (int seq = 0; seq < tbatch_lens[tb]; seq++) {
-        // for each word at specified time step
-        auto dst = hidden_data + seq * C;
-        auto src = tbatch_hidden_data + (tb * N + seq) * C;
-        memcpy(dst, src, C * sizeof(T));
+        memcpy(hidden_data + index[index_idx] * C, tbatch_ptr + seq * C,
+               C * sizeof(T));
+        index_idx++;
       }
-      offset += tbatch_lens[tb];
+      tbatch_ptr += N * C;
     }
-    */
-    size_t* index = tbatch_lods[1].data();
-    for (int seq = 0; seq < SeqLen; seq++) {
-      memcpy(hidden_data + index[seq] * C, tbatch_hidden_data + seq * C,
-             C * sizeof(T));
-    }
+
     //    PADDLE_ENFORCE_EQ(offset, SeqLen,
     //                      "Hidden output should have same length as input x");
 
