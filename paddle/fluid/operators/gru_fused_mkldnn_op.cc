@@ -256,7 +256,16 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
     auto h0_memory_pd = memory::primitive_desc(h0_md, mkldnn_engine);
     auto h0_mpd = memory::primitive_desc(h0_md, mkldnn_engine);
     auto h0_data = h0->data<T>();
-    auto h0_memory = memory(h0_mpd, to_void_cast(h0_data));
+
+    std::vector<T> h0_sorted(N * C, 0.);
+    auto h0_sorted_data = h0_sorted.data();
+
+    for (int i = 0; i < N; i++) {
+      memcpy(h0_sorted_data + seq_info[i].seq_idx * C, h0_data + i * C,
+             C * sizeof(T));
+    }
+
+    auto h0_memory = memory(h0_mpd, to_void_cast(h0_sorted_data));
     //    }
 
     // Weight W_x
@@ -315,13 +324,14 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
 
     // create GRU forward primitive desc
     auto cell = rnn_cell::desc{mkldnn::algorithm::vanilla_gru};
-    rnn_direction direction;
-    direction = is_reverse ? rnn_direction::unidirectional_right2left
-                           : rnn_direction::unidirectional_left2right;
+    //    rnn_direction direction;
+    //    direction = is_reverse ? rnn_direction::unidirectional_right2left
+    //                           : rnn_direction::unidirectional_left2right;
 
     auto forward_desc = rnn_forward::desc(
-        mkldnn::prop_kind::forward_inference, cell, direction, input_md, h0_md,
-        weight_x_md, weight_h_md, bias_md, hidden_md, mkldnn::zero_md());
+        mkldnn::prop_kind::forward_inference, cell,
+        rnn_direction::unidirectional, input_md, h0_md, weight_x_md,
+        weight_h_md, bias_md, hidden_md, mkldnn::zero_md());
     auto forward_pd = rnn_forward::primitive_desc(forward_desc, mkldnn_engine);
 
     // create dest memory (TBatch,N,C) for GRU forward

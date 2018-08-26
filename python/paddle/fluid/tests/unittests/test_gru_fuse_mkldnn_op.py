@@ -1,14 +1,29 @@
+# Copyright (c) 2018 PaddlePaddle Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import unittest
 import numpy as np
 import math
 from op_test import OpTest
 from test_lstm_op import identity, sigmoid, tanh, relu
 
+
 class TestGRUOp(OpTest):
-    lod = [[2, 4, 3]]
+    lod = [[2, 4]]
     batch_size = sum(lod[0])
-    frame_size = 5
-    feature_size = 8
+    frame_size = 2
+    feature_size = 4
     activate = {
         'identity': identity,
         'sigmoid': sigmoid,
@@ -46,6 +61,7 @@ class TestGRUOp(OpTest):
             (frame_size, frame_size * 2))
         u_r = self.activate[self.attrs['gate_activation']](np.dot(
             h_p, w_u_r) + g[:, :frame_size * 2])
+
         u = u_r[:, :frame_size]
         r = u_r[:, frame_size:frame_size * 2]
         r_h_p = r * h_p
@@ -54,13 +70,14 @@ class TestGRUOp(OpTest):
         c = self.activate[self.attrs['activation']](np.dot(r_h_p, w_c) +
                                                     g[:, frame_size * 2:])
         g = np.hstack((u_r, c))
-        h = u * c + (1 - u) * h_p
+        h = u * h_p + (1 - u) * c
         return g, r_h_p, h
 
     def gru(self):
         input, lod = self.inputs['Input']
         wx = self.inputs['WeightX']
         wh = self.inputs['WeightH']
+
         b = self.inputs['Bias'] if self.inputs.has_key('Bias') else np.zeros(
             (1, self.frame_size * 3))
         hidden = self.outputs['Hidden']
@@ -71,14 +88,14 @@ class TestGRUOp(OpTest):
         end_idx = 0
         for batch_idx in range(num_batch):
             x = input[idx_in_seq_list[batch_idx]]
-            x_gru = np.add(np.dot(x, wx), b/2)
-            g, r_h_p, h = self.gru_step(x_gru, h_p, wh, b/2)
+            x_gru = np.dot(x, wx)
+            g, r_h_p, h = self.gru_step(x_gru, h_p, wh, b)
             if batch_idx < (num_batch - 1):
                 h_p = h[:len(idx_in_seq_list[batch_idx + 1])]
             start_idx = end_idx
             end_idx = start_idx + len(idx_in_seq_list[batch_idx])
             hidden[idx_in_seq_list[batch_idx]] = h
-        return  hidden
+        return hidden
 
     def set_data(self):
         lod = self.lod
@@ -87,13 +104,18 @@ class TestGRUOp(OpTest):
         batch_size = self.batch_size
         frame_size = self.frame_size
         feature_size = self.feature_size
-        #input = np.random.rand(batch_size, frame_size * 3).astype('float64')
+        #        input = np.zeros((batch_size, feature_size), dtype='float32')
+
         input = np.random.rand(batch_size, feature_size).astype('float32')
         h0 = np.random.rand(len(self.idx_in_seq_list[0]),
                             frame_size).astype('float32')
+        #        h0 = np.zeros((batch_size, frame_size), dtype='float32')
         weightH = np.random.rand(frame_size, frame_size * 3).astype('float32')
+        #        weightH = np.zeros((frame_size, frame_size * 3), dtype='float32')
+        #        weightX = np.zeros((feature_size, frame_size * 3), dtype='float32')
         weightX = np.random.rand(feature_size, frame_size * 3).astype('float32')
         biasH = np.random.rand(1, frame_size * 3).astype('float32')
+        #        biasH = np.zeros((1, frame_size * 3), dtype='float32')
         bias = np.add(biasH, biasH)
 
         self.inputs = {
@@ -101,7 +123,7 @@ class TestGRUOp(OpTest):
             'H0': h0,
             'WeightX': weightX,
             'WeightH': weightH,
-            'Bias': bias
+            'Bias': bias / 2
         }
 
         self.outputs = {
@@ -128,8 +150,6 @@ class TestGRUOp(OpTest):
         self.check_output()
 
 
-
-
 class TestGRUOpReverse(TestGRUOp):
     def set_confs(self):
         self.is_reverse = True
@@ -139,5 +159,7 @@ class TestGRUOpReverse(TestGRUOp):
             'is_reverse': self.is_reverse,
             'use_mkldnn': True
         }
+
+
 if __name__ == "__main__":
     unittest.main()
