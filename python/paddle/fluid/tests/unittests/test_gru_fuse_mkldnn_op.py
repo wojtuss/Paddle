@@ -20,10 +20,10 @@ from test_lstm_op import identity, sigmoid, tanh, relu
 
 
 class TestGRUOp(OpTest):
-    lod = [[2, 4]]
+    lod = [[2, 4, 5]]
     batch_size = sum(lod[0])
-    frame_size = 2
-    feature_size = 4
+    frame_size = 5
+    feature_size = 8
     activate = {
         'identity': identity,
         'sigmoid': sigmoid,
@@ -104,18 +104,18 @@ class TestGRUOp(OpTest):
         batch_size = self.batch_size
         frame_size = self.frame_size
         feature_size = self.feature_size
-        #        input = np.zeros((batch_size, feature_size), dtype='float32')
+        #        input = np.ones((batch_size, feature_size), dtype='float32')
 
         input = np.random.rand(batch_size, feature_size).astype('float32')
         h0 = np.random.rand(len(self.idx_in_seq_list[0]),
                             frame_size).astype('float32')
         #        h0 = np.zeros((batch_size, frame_size), dtype='float32')
         weightH = np.random.rand(frame_size, frame_size * 3).astype('float32')
-        #        weightH = np.zeros((frame_size, frame_size * 3), dtype='float32')
-        #        weightX = np.zeros((feature_size, frame_size * 3), dtype='float32')
+        #weightH = np.zeros((frame_size, frame_size * 3), dtype='float32')
+        #        weightX = np.ones((feature_size, frame_size * 3), dtype='float32')
         weightX = np.random.rand(feature_size, frame_size * 3).astype('float32')
         biasH = np.random.rand(1, frame_size * 3).astype('float32')
-        #        biasH = np.zeros((1, frame_size * 3), dtype='float32')
+        #biasH = np.zeros((1, frame_size * 3), dtype='float32')
         bias = np.add(biasH, biasH)
 
         self.inputs = {

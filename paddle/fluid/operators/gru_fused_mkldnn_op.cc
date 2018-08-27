@@ -217,15 +217,28 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
     std::vector<T> tbatch_x(TBatch * N * I, 0);  // unpack with zero padding
     T* tbatch_x_data = tbatch_x.data();
 
-    for (int seq = 0; seq < N; seq++) {  // for each sequence
-      // get source address of this sequence
-      auto ss = x_data + seq_info[seq].start * I;
+    /*
+        for (int seq = 0; seq < N; seq++) {  // for each sequence
+          // get source address of this sequence
+          auto ss = x_data + seq_info[seq].start * I;
 
-      for (int tb = 0; tb < seq_info[seq].length; tb++) {  // for each time step
-        // get src/target address for this time step in this sequence
-        auto sst = ss + tb * I;
-        auto dst = tbatch_x_data + (tb * N + seq) * I;
-        memcpy(dst, sst, I * sizeof(T));
+          for (int tb = 0; tb < seq_info[seq].length; tb++) {  // for each time
+       step
+            // get src/target address for this time step in this sequence
+            auto sst = ss + tb * I;
+            auto dst = tbatch_x_data + (tb * N + seq) * I;
+            memcpy(dst, sst, I * sizeof(T));
+          }
+        }
+    */
+    size_t src_index_idx = 0;
+
+    for (int tb = 0; tb < TBatch; tb++) {
+      for (int seq = 0; seq < tbatch_lens[tb]; seq++) {
+        auto src = x_data + tbatch2seq_idx[src_index_idx] * I;
+        auto dst = tbatch_x_data + tb * N * I + seq * I;
+        memcpy(dst, src, I * sizeof(T));
+        src_index_idx++;
       }
     }
 
@@ -242,7 +255,7 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
     //    const T* h0_data;
     //    auto h0_memory = null_memory_;
     //    if (h0) {
-    std::vector<int> h0_dims = vectorize2int(h0->dims());
+    //    std::vector<int> h0_dims = vectorize2int(h0->dims());
     // fixme: H0 in Paddle GRU op is (N x LDSC). Is reorder needed here?
     // tpatejko: by default GRU layer in PaddlePaddle is not stacked so
     // L=1. D=1: PaddlePaddle GRU cell can run from left to right or
@@ -255,14 +268,17 @@ class GRUFusedMKLDNNKernel : public framework::OpKernel<T> {
         MKLDNNMemDesc({L, D, 1, N, C}, MKLDNNGetDataType<T>(), h0_format);
     auto h0_memory_pd = memory::primitive_desc(h0_md, mkldnn_engine);
     auto h0_mpd = memory::primitive_desc(h0_md, mkldnn_engine);
-    auto h0_data = h0->data<T>();
 
     std::vector<T> h0_sorted(N * C, 0.);
     auto h0_sorted_data = h0_sorted.data();
 
-    for (int i = 0; i < N; i++) {
-      memcpy(h0_sorted_data + seq_info[i].seq_idx * C, h0_data + i * C,
-             C * sizeof(T));
+    if (h0) {
+      auto h0_data = h0->data<T>();
+
+      for (int i = 0; i < N; i++) {
+        memcpy(h0_sorted_data + seq_info[i].seq_idx * C, h0_data + i * C,
+               C * sizeof(T));
+      }
     }
 
     auto h0_memory = memory(h0_mpd, to_void_cast(h0_sorted_data));
