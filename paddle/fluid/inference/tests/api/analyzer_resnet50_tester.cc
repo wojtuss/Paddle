@@ -47,13 +47,14 @@ namespace paddle {
 struct DataReader {
   explicit DataReader(const std::string& data_list_path,
                       const std::string& data_dir_path, int resize_width,
-                      int resize_height, int channels)
+                      int resize_height, int channels, bool convert_to_rgb)
       : data_list_path(data_list_path),
         data_dir_path(data_dir_path),
         file(std::ifstream(data_list_path)),
         width(resize_width),
         height(resize_height),
-        channels(channels) {
+        channels(channels),
+        convert_to_rgb(convert_to_rgb) {
     if (!file.is_open()) {
       throw std::invalid_argument("Cannot open data list file " +
                                   data_list_path);
@@ -106,6 +107,10 @@ struct DataReader {
       label[i] = std::stoi(pieces.at(1));
 
       cv::Mat image = cv::imread(filename, cv::IMREAD_COLOR);
+      if (convert_to_rgb) {
+        cv::cvtColor(image, image, CV_BGR2RGB);
+      }
+
       if (image.data == nullptr) {
         std::string error_msg = "Couldn't open file " + filename;
         throw std::runtime_error(error_msg);
@@ -121,8 +126,14 @@ struct DataReader {
       image2.convertTo(fimage, CV_32FC3);
 
       fimage /= 255.f;
+
       cv::Scalar mean(0.406f, 0.456f, 0.485f);
       cv::Scalar std(0.225f, 0.224f, 0.229f);
+
+      if (convert_to_rgb) {
+        std::swap(mean[0], mean[2]);
+        std::swap(std[0], std[2]);
+      }
 
       std::vector<cv::Mat> fimage_channels;
       cv::split(fimage, fimage_channels);
@@ -148,10 +159,11 @@ struct DataReader {
   int width;
   int height;
   int channels;
-  char sep = '\t';
+  bool convert_to_rgb;
+  char sep{'\t'};
 };
 
-void drawImages(float* input) {
+void drawImages(float* input, bool is_rgb) {
   if (FLAGS_debug_display_images) {
     for (int b = 0; b < FLAGS_batch_size; b++) {
       std::vector<cv::Mat> fimage_channels;
@@ -162,6 +174,9 @@ void drawImages(float* input) {
                 FLAGS_width * FLAGS_height * FLAGS_channels * b);
       }
       cv::Mat mat;
+      if (is_rgb) {
+        std::swap(fimage_channels[0], fimage_channels[2]);
+      }
       cv::merge(fimage_channels, mat);
       cv::imshow(std::to_string(b) + " output image", mat);
     }
@@ -285,6 +300,7 @@ void Main() {
 
   // reader instance for not fake data
   std::unique_ptr<DataReader> reader;
+  bool convert_to_rgb = true;
 
   // Read first batch
   if (FLAGS_use_fake_data) {
@@ -306,7 +322,7 @@ void Main() {
                        label_size);
   } else {
     reader.reset(new DataReader(FLAGS_data_list, FLAGS_data_dir, FLAGS_width,
-                                FLAGS_height, FLAGS_channels));
+                                FLAGS_height, FLAGS_channels, convert_to_rgb));
     if (!reader->SetSeparator('\t')) reader->SetSeparator(' ');
     // get imagenet data and label
     input.data.Resize(count(shape) * sizeof(float));
@@ -362,7 +378,7 @@ void Main() {
       }
     }
 
-    drawImages(static_cast<float*>(input.data.data()));
+    drawImages(static_cast<float*>(input.data.data()), convert_to_rgb);
 
     if (i == FLAGS_skip_batch_num) {
       timer_total.tic();
@@ -382,7 +398,7 @@ void Main() {
     infer_accs.push_back(*acc1);
     double fps = FLAGS_batch_size * 1000 / batch_time;
     fpses.push_back(fps);
-    std::string appx = (i < FLAGS_skip_batch_num) ? " (warm-up)" : "";
+    std::string appx = (i < FLAGS_skip_batch_num) ? "(warm-up) " : "";
     std::cout << "Iteration: " << appx << i << ", "
               << "accuracy: " << *acc1 << ", "
               << "latency: " << batch_time << " ms, "
