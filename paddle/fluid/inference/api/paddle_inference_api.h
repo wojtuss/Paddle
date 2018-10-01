@@ -259,18 +259,32 @@ struct AnalysisConfig : public NativeConfig {
     kExclude   // Specify the disabled passes in `ir_passes`.
   };
 
+  void SetIncludeMode() {
+    ir_mode = IrPassMode::kInclude;
+    ir_passes = {"infer_clean_graph_pass"};
+#ifdef PADDLE_WITH_MKLDNN
+    ir_mkldnn_passes = {"infer_clean_graph_pass"};
+#endif
+  }
+
   // Determine whether to perform graph optimization.
   bool enable_ir_optim = true;
   // Manually determine the IR passes to run.
   IrPassMode ir_mode{IrPassMode::kExclude};
+  // passes to be excluded/included
   std::vector<std::string> ir_passes{"embedding_fc_lstm_fuse_pass"};
+#ifdef PADDLE_WITH_MKLDNN
+  // when PaddlePadde is built with MKL-DNN the passes from ir_passes are
+  // excluded/included only when MKL-DNN is disabled
+  //
+  // passes to be excluded/included when MKL-DNN is enabled
+  std::vector<std::string> ir_mkldnn_passes{"infer_clean_graph_pass"};
+#endif
+
+  bool use_mkldnn{false};
 
   // NOT stable yet.
   bool use_feed_fetch_ops{true};
-
-  // NOTE this is just for internal development, please not use it.
-  // NOT stable yet.
-  bool _use_mkldnn{false};
 };
 
 // Configurations for Anakin engine.
