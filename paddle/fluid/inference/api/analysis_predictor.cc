@@ -16,8 +16,10 @@
 #include <glog/logging.h>
 #include <algorithm>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 #include "paddle/fluid/framework/feed_fetch_method.h"
 #include "paddle/fluid/framework/feed_fetch_type.h"
@@ -28,6 +30,7 @@
 #include "paddle/fluid/framework/var_type_traits.h"
 #include "paddle/fluid/inference/analysis/helper.h"
 #include "paddle/fluid/inference/analysis/passes/memory_optimize_pass.h"
+#include "paddle/fluid/inference/analysis/quantizer.h"
 #include "paddle/fluid/inference/api/helper.h"
 #include "paddle/fluid/inference/api/paddle_inference_api.h"
 #include "paddle/fluid/inference/api/paddle_inference_pass.h"
@@ -53,6 +56,7 @@ using inference::tensorrt::TRTInt8Calibrator;
 using inference::tensorrt::TRTCalibratorEngine;
 using inference::tensorrt::TRTCalibratorEngineManager;
 #endif
+using inference::analysis::Quantizer;
 
 namespace {
 bool IsPersistable(const framework::VarDesc *var) {
@@ -98,6 +102,27 @@ bool AnalysisPredictor::Init(
 
   // Get the feed_target_names and fetch_target_names
   PrepareFeedFetch();
+
+  // Get data from the variables that must be quantized
+  if (!PrepareQuantize()) {
+    return false;
+  }
+
+  return true;
+}
+
+bool AnalysisPredictor::PrepareQuantize() {
+  if (config_.quantization_enabled()) {
+    auto predictor_run =
+        std::bind(&AnalysisPredictor::Run, this, std::placeholders::_1,
+                  std::placeholders::_2, std::placeholders::_3);
+    framework::Scope *scope = sub_scope_ ? sub_scope_ : scope_.get();
+    // initialize quantizer
+    quantizer_.reset(new Quantizer(scope, inference_program_,
+                                   config_.quantizer_config_, predictor_run));
+    // do the quantization
+    if (!quantizer_->Quantize()) return false;
+  }
 
   return true;
 }
@@ -212,8 +237,10 @@ bool AnalysisPredictor::Run(const std::vector<PaddleTensor> &inputs,
 
   // All the containers in the scope will be hold in inference, but the
   // operators assume that the container will be reset after each batch.
-  // Here is a bugfix, collect all the container variables, and reset then to a
-  // bool; the next time, the operator will call MutableData and construct a new
+  // Here is a bugfix, collect all the container variables, and reset then to
+  // a
+  // bool; the next time, the operator will call MutableData and construct a
+  // new
   // container again, so that the container will be empty for each batch.
   tensor_array_batch_cleaner_.CollectNoTensorVars(sub_scope_);
   tensor_array_batch_cleaner_.ResetNoTensorVars();
@@ -295,7 +322,8 @@ void AnalysisPredictor::GetFetchOne(const framework::LoDTensor &fetch,
   const T *data = fetch.data<T>();
   int num_elems = inference::VecReduceToInt(shape);
   output->data.Resize(num_elems * sizeof(T));
-  // The fetched tensor output by fetch op, should always in CPU memory, so just
+  // The fetched tensor output by fetch op, should always in CPU memory, so
+  // just
   // copy.
   memcpy(output->data.data(), data, num_elems * sizeof(T));
   // set lod
@@ -326,6 +354,35 @@ bool AnalysisPredictor::GetFetch(std::vector<PaddleTensor> *outputs,
     } else {
       LOG(ERROR) << "unknown type, only support float32 and int64 now.";
     }
+  }
+  return true;
+}
+
+bool AnalysisPredictor::GetQuantVars(
+    const std::unique_ptr<std::map<std::string, PaddleTensor>> &quant_vars) {
+  framework::Scope *scope = sub_scope_ ? sub_scope_ : scope_.get();
+  // go through all the quantized operators and gather all the inputs,
+  // outputs,
+  // weights and biases
+  for (size_t i = 0; i < 10; ++i) {
+    std::string qvar_name = "aaa";
+    PaddleTensor qvar;
+    qvar.name = qvar_name;
+    framework::LoDTensor &qvar_lod =
+        framework::GetVariableTensor(*scope, qvar_name);
+    auto type = qvar_lod.type();
+    if (type == framework::proto::VarType::FP32) {
+      GetFetchOne<float>(qvar_lod, &qvar);
+      qvar.dtype = PaddleDType::FLOAT32;
+    } else if (type == framework::proto::VarType::INT64) {
+      GetFetchOne<int64_t>(qvar_lod, &qvar);
+      qvar.dtype = PaddleDType::INT64;
+    } else {
+      LOG(ERROR) << "unknown type, only support float32 and int64 now.";
+    }
+    // std::move?
+    quant_vars->insert(
+        std::pair<std::string, PaddleTensor>(qvar_name, std::move(qvar)));
   }
   return true;
 }
@@ -369,6 +426,12 @@ void AnalysisPredictor::OptimizeInferenceProgram() {
     argument_.SetMKLDNNEnabledOpTypes(config_.mkldnn_enabled_op_types_);
   }
 
+  if (config_.quantize_) {
+    LOG(INFO) << "quantization is enabled";
+    argument_.SetQuantEnabledOpTypes(
+        config_.GetQuantizerConfig()->GetQuantizeEnabledOpTypes());
+  }
+
   auto passes = config_.pass_builder()->AllPasses();
   if (!config_.ir_optim()) {
     passes.clear();
@@ -403,8 +466,8 @@ std::unique_ptr<PaddlePredictor> CreatePaddlePredictor<
       LOG(ERROR)
           << "Allocate too much memory for the GPU memory pool, assigned "
           << config.memory_pool_init_size_mb() << " MB";
-      LOG(ERROR)
-          << "Try to shink the value by setting AnalysisConfig::EnableGpu(...)";
+      LOG(ERROR) << "Try to shink the value by setting "
+                    "AnalysisConfig::EnableGpu(...)";
     }
 
     if (fraction_of_gpu_memory >= 0.0f || fraction_of_gpu_memory <= 0.95f) {

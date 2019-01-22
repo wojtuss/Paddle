@@ -124,6 +124,14 @@ struct Argument {
   DECL_ARGUMENT_FIELD(mkldnn_enabled_op_types, MKLDNNEnabledOpTypes,
                       std::unordered_set<std::string>);
 
+  // A set of op types to enable their quantized kernels
+  DECL_ARGUMENT_FIELD(quantize_enabled_op_types, QuantEnabledOpTypes,
+                      std::unordered_set<std::string>);
+
+  // Scales for variables to be quantized
+  DECL_ARGUMENT_FIELD(quant_var_scales, QuantVarScales,
+                      std::unordered_set<std::string>);
+
   // Passed from config.
   DECL_ARGUMENT_FIELD(use_gpu, UseGPU, bool);
   DECL_ARGUMENT_FIELD(gpu_device_id, GPUDeviceId, int);

@@ -17,6 +17,7 @@
 #include "paddle/fluid/inference/api/paddle_analysis_config.h"
 #include "paddle/fluid/inference/api/paddle_inference_api.h"
 #include "paddle/fluid/inference/api/paddle_pass_builder.h"
+#include "paddle/fluid/inference/api/paddle_quantizer_config.h"
 #include "paddle/fluid/platform/enforce.h"
 #include "paddle/fluid/platform/gpu_info.h"
 
@@ -89,7 +90,7 @@ AnalysisConfig::AnalysisConfig(const AnalysisConfig &other) {
   CP_MEMBER(params_file_);
   CP_MEMBER(model_from_memory_);  // the memory model reuses prog_file_ and
                                   // params_file_ fields.
-  // Gpu releated.
+  // Gpu related.
   CP_MEMBER(use_gpu_);
   CP_MEMBER(device_id_);
   CP_MEMBER(memory_pool_init_size_mb_);
@@ -97,15 +98,18 @@ AnalysisConfig::AnalysisConfig(const AnalysisConfig &other) {
   CP_MEMBER(enable_memory_optim_);
   CP_MEMBER(static_memory_optim_);
   CP_MEMBER(static_memory_optim_force_update_);
-  // TensorRT releated.
+  // TensorRT related.
   CP_MEMBER(use_tensorrt_);
   CP_MEMBER(tensorrt_workspace_size_);
   CP_MEMBER(tensorrt_max_batchsize_);
   CP_MEMBER(tensorrt_min_subgraph_size_);
   CP_MEMBER(tensorrt_precision_mode_);
-  // MKLDNN releated.
+  // MKLDNN related.
   CP_MEMBER(use_mkldnn_);
   CP_MEMBER(mkldnn_enabled_op_types_);
+  // Quantization related.
+  CP_MEMBER(quantize_);
+  CP_MEMBER(quantizer_config_);
 
   // Ir related.
   CP_MEMBER(enable_ir_optim_);
@@ -132,7 +136,7 @@ AnalysisConfig::AnalysisConfig(const AnalysisConfig &other) {
 
 void AnalysisConfig::EnableMKLDNN() {
 #ifdef PADDLE_WITH_MKLDNN
-  pass_builder()->EnableMKLDNN();
+  // pass_builder()->EnableMKLDNN();
   use_mkldnn_ = true;
 #else
   LOG(ERROR) << "Please compile with MKLDNN first to use MKLDNN";
@@ -140,6 +144,21 @@ void AnalysisConfig::EnableMKLDNN() {
 #endif
 
   Update();
+}
+
+void AnalysisConfig::EnableQuantizer() {
+  quantize_ = true;
+  if (!quantizer_config_)
+    quantizer_config_.reset(new QuantizerConfig());
+
+  Update();
+}
+
+std::shared_ptr<QuantizerConfig>
+AnalysisConfig::GetQuantizerConfig() {
+  if (!quantizer_config_)
+    quantizer_config_.reset(new QuantizerConfig());
+  return quantizer_config_;
 }
 
 void AnalysisConfig::EnableTensorRtEngine(
@@ -209,11 +228,20 @@ void AnalysisConfig::Update() {
     }
 #ifdef PADDLE_WITH_MKLDNN
     pass_builder()->EnableMKLDNN();
-    use_mkldnn_ = true;
+// use_mkldnn_ = true;
 #else
     LOG(ERROR) << "Please compile with MKLDNN first to use MKLDNN";
     use_mkldnn_ = false;
 #endif
+  }
+
+  // Quantization passes must come after all other optimization passes
+  if (quantize_) {
+    if (!enable_ir_optim_) {
+      LOG(ERROR)
+          << "EnableQuantizer() only works when IR optimization is enabled.";
+    }
+    pass_builder_->EnableQuantizer();
   }
 
   if (enable_memory_optim_) {
@@ -247,6 +275,9 @@ std::string AnalysisConfig::SerializeInfoCache() {
   ss << use_mkldnn_;
   for (auto &item : mkldnn_enabled_op_types_) ss << item;
   ss << ";";
+
+  ss << quantize_;
+  // TODO(wojtuss): handle QuantizerConfig
 
   ss << model_from_memory_;
 

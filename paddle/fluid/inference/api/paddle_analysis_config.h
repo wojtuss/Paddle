@@ -23,8 +23,9 @@
 
 // Here we include some header files with relative paths, for that in deploy,
 // the abstract path of this header file will be changed.
-#include "paddle_api.h"           // NOLINT
-#include "paddle_pass_builder.h"  // NOLINT
+#include "paddle_api.h"               // NOLINT
+#include "paddle_pass_builder.h"      // NOLINT
+#include "paddle_quantizer_config.h"  // NOLINT
 
 namespace paddle {
 
@@ -173,6 +174,16 @@ struct AnalysisConfig {
     mkldnn_enabled_op_types_ = op_list;
   }
 
+  /** Turn on quantization.
+   */
+  void EnableQuantizer();
+
+  /** A boolean state telling whether the quantization is enabled.
+   */
+  bool quantization_enabled() const { return quantize_; }
+
+  std::shared_ptr<QuantizerConfig> GetQuantizerConfig();
+
   /** Specify the memory buffer of program and parameter
    * @param prog_buffer the memory buffer of program.
    * @param prog_buffer_size the size of the data.
@@ -241,6 +252,9 @@ struct AnalysisConfig {
 
   bool use_mkldnn_{false};
   std::unordered_set<std::string> mkldnn_enabled_op_types_;
+
+  bool quantize_{false};
+  std::shared_ptr<QuantizerConfig> quantizer_config_;
 
   bool model_from_memory_{false};
 

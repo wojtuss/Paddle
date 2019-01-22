@@ -84,6 +84,10 @@ class PassStrategy : public PaddlePassBuilder {
    */
   virtual void EnableMKLDNN() {}
 
+  /** Enable quantize optimization
+   */
+  virtual void EnableQuantizer() {}
+
   bool use_gpu() const { return use_gpu_; }
 
   virtual ~PassStrategy() = default;
@@ -147,6 +151,17 @@ class CpuPassStrategy : public PassStrategy {
     use_mkldnn_ = false;
 #endif
   }
+
+  void EnableQuantizer() override {
+    if (!quantize_) {
+      passes_.push_back("cpu_quantize_placement_pass");
+      // TODO(sfraczek): Add optimize_pass
+    }
+    quantize_ = true;
+  }
+
+ protected:
+  bool quantize_{false};
 };
 
 /** The GPU passes strategy, it is used in AnalysisPredictor with GPU mode.
@@ -181,6 +196,7 @@ class GpuPassStrategy : public PassStrategy {
   }
 
   void EnableMKLDNN() override;
+  void EnableQuantizer() override;
 
   virtual ~GpuPassStrategy() = default;
 };
