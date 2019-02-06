@@ -99,8 +99,6 @@ class AnalysisPredictor : public PaddlePredictor {
   template <typename T>
   void GetFetchOne(const framework::LoDTensor &fetchs,
                    PaddleTensor *output_data);
-  bool GetQuantVars(
-      const std::unique_ptr<std::map<std::string, PaddleTensor>> &quant_vars);
 
 #if PADDLE_WITH_TENSORRT
   // When we use Paddle-TRT INT8 engine, we need to generate calibration table

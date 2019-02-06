@@ -353,35 +353,6 @@ bool AnalysisPredictor::GetFetch(std::vector<PaddleTensor> *outputs,
   return true;
 }
 
-bool AnalysisPredictor::GetQuantVars(
-    const std::unique_ptr<std::map<std::string, PaddleTensor>> &quant_vars) {
-  framework::Scope *scope = sub_scope_ ? sub_scope_ : scope_.get();
-  // go through all the quantized operators and gather all the inputs,
-  // outputs,
-  // weights and biases
-  for (size_t i = 0; i < 10; ++i) {
-    std::string qvar_name = "aaa";
-    PaddleTensor qvar;
-    qvar.name = qvar_name;
-    framework::LoDTensor &qvar_lod =
-        framework::GetVariableTensor(*scope, qvar_name);
-    auto type = qvar_lod.type();
-    if (type == framework::proto::VarType::FP32) {
-      GetFetchOne<float>(qvar_lod, &qvar);
-      qvar.dtype = PaddleDType::FLOAT32;
-    } else if (type == framework::proto::VarType::INT64) {
-      GetFetchOne<int64_t>(qvar_lod, &qvar);
-      qvar.dtype = PaddleDType::INT64;
-    } else {
-      LOG(ERROR) << "unknown type, only support float32 and int64 now.";
-    }
-    // std::move?
-    quant_vars->insert(
-        std::pair<std::string, PaddleTensor>(qvar_name, std::move(qvar)));
-  }
-  return true;
-}
-
 // NOTE All the members in AnalysisConfig should be copied to Argument.
 void AnalysisPredictor::OptimizeInferenceProgram() {
   status_program_optimized_ = true;
