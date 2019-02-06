@@ -78,7 +78,6 @@ void Quantizer::CalculateScales(const std::string& op_name,
                                 float var_max_range) {
   // adds pairs variable name -> LoDTensor with scale to the scales map
 
-  using contrib::QuantizeAlgorithm;
   using platform::CPUPlace;
   using framework::EigenVector;
 

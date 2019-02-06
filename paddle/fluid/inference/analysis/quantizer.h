@@ -48,7 +48,6 @@ using ConstEigenVectorArrayMap =
 using framework::Scope;
 using framework::ProgramDesc;
 using framework::LoDTensor;
-using contrib::QuantizerConfig;
 
 typedef std::function<bool(const std::vector<PaddleTensor>& inputs,
                            std::vector<PaddleTensor>* output_data,

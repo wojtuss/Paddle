@@ -23,7 +23,6 @@
 #include "paddle_api.h"  // NOLINT
 
 namespace paddle {
-namespace contrib {
 
 enum QuantizeAlgorithm {
   none,
@@ -73,5 +72,4 @@ struct QuantizerConfig {
   int warmup_bs{0};
 };
 
-}  // namespace contrib
 }  // namespace paddle
