@@ -136,7 +136,6 @@ AnalysisConfig::AnalysisConfig(const AnalysisConfig &other) {
 
 void AnalysisConfig::EnableMKLDNN() {
 #ifdef PADDLE_WITH_MKLDNN
-  // pass_builder()->EnableMKLDNN();
   use_mkldnn_ = true;
 #else
   LOG(ERROR) << "Please compile with MKLDNN first to use MKLDNN";
@@ -225,7 +224,6 @@ void AnalysisConfig::Update() {
     }
 #ifdef PADDLE_WITH_MKLDNN
     pass_builder()->EnableMKLDNN();
-// use_mkldnn_ = true;
 #else
     LOG(ERROR) << "Please compile with MKLDNN first to use MKLDNN";
     use_mkldnn_ = false;

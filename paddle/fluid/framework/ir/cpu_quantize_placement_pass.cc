@@ -21,7 +21,7 @@ namespace ir {
 
 std::unique_ptr<ir::Graph> CPUQuantizePlacementPass::ApplyImpl(
     std::unique_ptr<ir::Graph> graph) const {
-  VLOG(3) << "Aplies CPU quantization placement strategy.";
+  VLOG(3) << "Applies CPU quantization placement strategy.";
   const auto& op_types_list =
       Get<std::unordered_set<std::string>>("quant_enabled_op_types");
   for (const Node* n : graph->Nodes()) {

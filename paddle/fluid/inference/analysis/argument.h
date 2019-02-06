@@ -23,7 +23,9 @@
 
 #pragma once
 
+#include <map>
 #include <string>
+#include <utility>
 #include <vector>
 #include "paddle/fluid/framework/ir/graph.h"
 #include "paddle/fluid/framework/program_desc.h"
@@ -129,8 +131,9 @@ struct Argument {
                       std::unordered_set<std::string>);
 
   // Scales for variables to be quantized
-  DECL_ARGUMENT_FIELD(quant_var_scales, QuantVarScales,
-                      std::unordered_set<std::string>);
+  using VarQuantMaxAndScale =
+      std::map<std::string, std::pair<QuantMax, framework::LoDTensor>>;
+  DECL_ARGUMENT_FIELD(quant_var_scales, QuantVarScales, VarQuantMaxAndScale);
 
   // Passed from config.
   DECL_ARGUMENT_FIELD(use_gpu, UseGPU, bool);

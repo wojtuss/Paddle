@@ -28,7 +28,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include "paddle/fluid/framework/eigen.h"
 #include "paddle/fluid/framework/lod_tensor.h"
 #include "paddle/fluid/framework/naive_executor.h"
 #include "paddle/fluid/framework/program_desc.h"
@@ -41,13 +40,11 @@ namespace inference {
 namespace analysis {
 
 using framework::NaiveExecutor;
-// using EigenVectorArrayMap = Eigen::Map<Eigen::Array<float, Eigen::Dynamic,
-// 1>>;
-using ConstEigenVectorArrayMap =
-    Eigen::Map<const Eigen::Array<float, Eigen::Dynamic, 1>>;
 using framework::Scope;
 using framework::ProgramDesc;
 using framework::LoDTensor;
+using VarQuantMaxAndScale =
+    std::map<std::string, std::pair<QuantMax, LoDTensor>>;
 
 typedef std::function<bool(const std::vector<PaddleTensor>& inputs,
                            std::vector<PaddleTensor>* output_data,
@@ -69,24 +66,15 @@ class Quantizer final {
 
  private:
   bool RunWarmup();
-  bool GatherData();
-  void CalculateScales(const std::string& op_name, const std::string& conn_name,
-                       const std::string& var_name, const LoDTensor& var_tensor,
-                       float var_max_range);
-  bool RunQuantizePass();
-  bool RunOptimizePass();
+  bool CalculateScales();
+  void CalculateSingleScale(const std::string& op_name,
+                            const std::string& conn_name,
+                            const std::string& var_name,
+                            const LoDTensor& var_tensor);
+  bool RunQuantizePasses();
   bool SaveModel();
-  float GetKLScalingFactor(ConstEigenVectorArrayMap eigen_data_vector,
-                           int num_quantized_bins = 255);
-  float GetMaxScalingFactor(ConstEigenVectorArrayMap activation_blob,
-                            float var_max_range);
-  std::pair<std::vector<int>, float> Histogram(
-      ConstEigenVectorArrayMap activation_blob, float min_val, float max_val,
-      int num_bins = 2048);
   std::vector<int> ExpandQuantizedBins(std::vector<int> quantized_bins,
                                        std::vector<int> reference_bins);
-  float safe_entropy(std::vector<int> reference_distr_P, int P_sum,
-                     std::vector<int> candidate_distr_Q, int Q_sum);
 
  private:
   Scope* scope_;
@@ -95,7 +83,7 @@ class Quantizer final {
   PredictorRun predictor_run_;
 
   // variable name -> data
-  std::map<std::string, framework::LoDTensor> scales_;
+  VarQuantMaxAndScale scales_;
 };
 
 }  // namespace analysis

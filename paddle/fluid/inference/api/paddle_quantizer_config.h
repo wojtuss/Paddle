@@ -30,6 +30,11 @@ enum class ScaleAlgo {
   KL,
 };
 
+enum class QuantMax : unsigned int {
+  U8_MAX = 255,
+  S8_MAX = 127,
+};
+
 struct QuantizerConfig {
   QuantizerConfig();
 
@@ -61,8 +66,6 @@ struct QuantizerConfig {
                          const std::string& conn_name) {
     return rules_[op_name][conn_name];
   }
-
-  friend struct AnalysisConfig;
 
  protected:
   std::map<std::string, std::map<std::string, ScaleAlgo>> rules_;

@@ -232,10 +232,8 @@ bool AnalysisPredictor::Run(const std::vector<PaddleTensor> &inputs,
 
   // All the containers in the scope will be hold in inference, but the
   // operators assume that the container will be reset after each batch.
-  // Here is a bugfix, collect all the container variables, and reset then to
-  // a
-  // bool; the next time, the operator will call MutableData and construct a
-  // new
+  // Here is a bugfix, collect all the container variables, and reset then to a
+  // bool; the next time, the operator will call MutableData and construct a new
   // container again, so that the container will be empty for each batch.
   tensor_array_batch_cleaner_.CollectNoTensorVars(sub_scope_);
   tensor_array_batch_cleaner_.ResetNoTensorVars();
@@ -317,8 +315,7 @@ void AnalysisPredictor::GetFetchOne(const framework::LoDTensor &fetch,
   const T *data = fetch.data<T>();
   int num_elems = inference::VecReduceToInt(shape);
   output->data.Resize(num_elems * sizeof(T));
-  // The fetched tensor output by fetch op, should always in CPU memory, so
-  // just
+  // The fetched tensor output by fetch op, should always in CPU memory, so just
   // copy.
   memcpy(output->data.data(), data, num_elems * sizeof(T));
   // set lod
