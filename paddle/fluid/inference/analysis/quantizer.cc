@@ -92,20 +92,19 @@ void Quantizer::CalculateScales(const std::string& op_name,
 
   auto rule = config_->GetScaleAlgo(op_name, conn_name);
   switch (rule) {
-    case QuantizeAlgorithm::none:
+    case ScaleAlgo::NONE:
       return;
-    case QuantizeAlgorithm::minmax: {
+    case ScaleAlgo::MAX: {
       scale_ptr[0] = GetMaxScalingFactor(
           {lod_tensor.data<float>(), lod_tensor.numel(), 1}, var_max_range);
       break;
     }
-    case QuantizeAlgorithm::KL:
+    case ScaleAlgo::KL:
       scale_ptr[0] = GetOptimalScalingFactor(
           {lod_tensor.data<float>(), lod_tensor.numel(), 1}, var_max_range);
       break;
     default:
-      throw std::runtime_error(
-          "Quantizer: Unexpected QuantizeAlgorithm specified.");
+      throw std::runtime_error("Quantizer: Unexpected ScaleAlgo specified.");
   }
   scales_[var_name] = std::move(scale_tensor);
 }

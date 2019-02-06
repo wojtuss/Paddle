@@ -24,17 +24,16 @@
 
 namespace paddle {
 
-enum QuantizeAlgorithm {
-  none,
-  minmax,
+enum class ScaleAlgo {
+  NONE,
+  MAX,
   KL,
 };
 
 struct QuantizerConfig {
   QuantizerConfig();
 
-  void SetScaleAlgo(std::string op_name, std::string var_name,
-                    QuantizeAlgorithm alg) {
+  void SetScaleAlgo(std::string op_name, std::string var_name, ScaleAlgo alg) {
     rules_[op_name][var_name] = alg;
   }
 
@@ -58,15 +57,15 @@ struct QuantizerConfig {
     return quantize_enabled_op_types_;
   }
 
-  QuantizeAlgorithm GetScaleAlgo(const std::string& op_name,
-                                 const std::string& conn_name) {
+  ScaleAlgo GetScaleAlgo(const std::string& op_name,
+                         const std::string& conn_name) {
     return rules_[op_name][conn_name];
   }
 
   friend struct AnalysisConfig;
 
  protected:
-  std::map<std::string, std::map<std::string, QuantizeAlgorithm>> rules_;
+  std::map<std::string, std::map<std::string, ScaleAlgo>> rules_;
   std::unordered_set<std::string> quantize_enabled_op_types_;
   std::shared_ptr<std::vector<PaddleTensor>> warmup_data_;
   int warmup_bs{0};
