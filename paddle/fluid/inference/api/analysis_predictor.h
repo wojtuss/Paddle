@@ -87,7 +87,7 @@ class AnalysisPredictor : public PaddlePredictor {
   bool PrepareScope(const std::shared_ptr<framework::Scope> &parent_scope);
   bool CreateExecutor();
   bool PrepareExecutor();
-  bool PrepareQuantize();
+  bool Quantize();
 
   bool LoadProgramDesc();
   bool LoadParameters();

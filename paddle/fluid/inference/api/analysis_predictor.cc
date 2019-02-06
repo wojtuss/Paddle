@@ -103,15 +103,10 @@ bool AnalysisPredictor::Init(
   // Get the feed_target_names and fetch_target_names
   PrepareFeedFetch();
 
-  // Get data from the variables that must be quantized
-  if (!PrepareQuantize()) {
-    return false;
-  }
-
   return true;
 }
 
-bool AnalysisPredictor::PrepareQuantize() {
+bool AnalysisPredictor::Quantize() {
   if (config_.quantization_enabled()) {
     auto predictor_run =
         std::bind(&AnalysisPredictor::Run, this, std::placeholders::_1,
@@ -481,9 +476,16 @@ std::unique_ptr<PaddlePredictor> CreatePaddlePredictor<
   }
 
   std::unique_ptr<PaddlePredictor> predictor(new AnalysisPredictor(config));
-  if (!dynamic_cast<AnalysisPredictor *>(predictor.get())->Init(nullptr)) {
+  auto predictor_p = dynamic_cast<AnalysisPredictor *>(predictor.get());
+
+  if (!predictor_p->Init(nullptr)) {
     return nullptr;
   }
+
+  if (config.use_quantize()) {
+    if (!predictor_p->Quantize()) return nullptr;
+  }
+
   return std::move(predictor);
 }
 
