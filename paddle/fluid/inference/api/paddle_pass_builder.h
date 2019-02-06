@@ -153,15 +153,15 @@ class CpuPassStrategy : public PassStrategy {
   }
 
   void EnableQuantizer() override {
-    if (!quantize_) {
+    if (!use_quantizer_) {
       passes_.push_back("cpu_quantize_placement_pass");
       // TODO(sfraczek): Add optimize_pass
     }
-    quantize_ = true;
+    use_quantizer_ = true;
   }
 
  protected:
-  bool quantize_{false};
+  bool use_quantizer_{false};
 };
 
 /** The GPU passes strategy, it is used in AnalysisPredictor with GPU mode.

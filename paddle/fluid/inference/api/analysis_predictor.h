@@ -77,6 +77,8 @@ class AnalysisPredictor : public PaddlePredictor {
 
   std::string GetSeriazlizedProgram() const override;
 
+  bool Quantize();
+
  protected:
   // For memory optimization.
   bool need_collect_var_shapes_for_memory_optim();
@@ -87,7 +89,6 @@ class AnalysisPredictor : public PaddlePredictor {
   bool PrepareScope(const std::shared_ptr<framework::Scope> &parent_scope);
   bool CreateExecutor();
   bool PrepareExecutor();
-  bool Quantize();
 
   bool LoadProgramDesc();
   bool LoadParameters();

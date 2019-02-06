@@ -108,7 +108,7 @@ AnalysisConfig::AnalysisConfig(const AnalysisConfig &other) {
   CP_MEMBER(use_mkldnn_);
   CP_MEMBER(mkldnn_enabled_op_types_);
   // Quantization related.
-  CP_MEMBER(quantize_);
+  CP_MEMBER(use_quantizer_);
   CP_MEMBER(quantizer_config_);
 
   // Ir related.
@@ -147,17 +147,14 @@ void AnalysisConfig::EnableMKLDNN() {
 }
 
 void AnalysisConfig::EnableQuantizer() {
-  quantize_ = true;
-  if (!quantizer_config_)
-    quantizer_config_.reset(new QuantizerConfig());
+  use_quantizer_ = true;
+  if (!quantizer_config_) quantizer_config_.reset(new QuantizerConfig());
 
   Update();
 }
 
-std::shared_ptr<QuantizerConfig>
-AnalysisConfig::GetQuantizerConfig() {
-  if (!quantizer_config_)
-    quantizer_config_.reset(new QuantizerConfig());
+std::shared_ptr<QuantizerConfig> AnalysisConfig::GetQuantizerConfig() {
+  if (!quantizer_config_) quantizer_config_.reset(new QuantizerConfig());
   return quantizer_config_;
 }
 
@@ -236,7 +233,7 @@ void AnalysisConfig::Update() {
   }
 
   // Quantization passes must come after all other optimization passes
-  if (quantize_) {
+  if (use_quantizer_) {
     if (!enable_ir_optim_) {
       LOG(ERROR)
           << "EnableQuantizer() only works when IR optimization is enabled.";
@@ -276,7 +273,7 @@ std::string AnalysisConfig::SerializeInfoCache() {
   for (auto &item : mkldnn_enabled_op_types_) ss << item;
   ss << ";";
 
-  ss << quantize_;
+  ss << use_quantizer_;
   // TODO(wojtuss): handle QuantizerConfig
 
   ss << model_from_memory_;

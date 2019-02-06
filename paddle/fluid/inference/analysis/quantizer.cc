@@ -48,7 +48,7 @@ bool Quantizer::GatherData() {
   /*
    *   std::map<std::string, std::map<std::string, LoDTensor>> gathered_data;
    *   for (auto *op : infer_program_->Block(0).AllOps()) {
-   *     if (op->HasAttr("quantize") && op->Attr<bool>("quantize")) {
+   *     if (op->HasAttr("use_quantizer") && op->Attr<bool>("use_quantizer")) {
    *       const VariableNameMap &connections = op->Inputs();
    *       const VariableNameMap &connections_out = op->Outputs();
    *       connections.insert(connections.end(), connections_out.begin(),

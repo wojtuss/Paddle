@@ -107,7 +107,7 @@ bool AnalysisPredictor::Init(
 }
 
 bool AnalysisPredictor::Quantize() {
-  if (config_.quantization_enabled()) {
+  if (config_.quantizer_enabled()) {
     auto predictor_run =
         std::bind(&AnalysisPredictor::Run, this, std::placeholders::_1,
                   std::placeholders::_2, std::placeholders::_3);
@@ -392,7 +392,7 @@ void AnalysisPredictor::OptimizeInferenceProgram() {
     argument_.SetMKLDNNEnabledOpTypes(config_.mkldnn_enabled_op_types_);
   }
 
-  if (config_.quantize_) {
+  if (config_.use_quantizer_) {
     LOG(INFO) << "quantization is enabled";
     argument_.SetQuantEnabledOpTypes(
         config_.GetQuantizerConfig()->GetQuantizeEnabledOpTypes());
@@ -453,7 +453,7 @@ std::unique_ptr<PaddlePredictor> CreatePaddlePredictor<
     return nullptr;
   }
 
-  if (config.use_quantize()) {
+  if (config.quantizer_enabled()) {
     if (!predictor_p->Quantize()) return nullptr;
   }
 

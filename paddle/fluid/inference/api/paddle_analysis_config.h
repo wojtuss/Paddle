@@ -180,7 +180,7 @@ struct AnalysisConfig {
 
   /** A boolean state telling whether the quantization is enabled.
    */
-  bool quantization_enabled() const { return quantize_; }
+  bool quantizer_enabled() const { return use_quantizer_; }
 
   std::shared_ptr<QuantizerConfig> GetQuantizerConfig();
 
@@ -253,7 +253,7 @@ struct AnalysisConfig {
   bool use_mkldnn_{false};
   std::unordered_set<std::string> mkldnn_enabled_op_types_;
 
-  bool quantize_{false};
+  bool use_quantizer_{false};
   std::shared_ptr<QuantizerConfig> quantizer_config_;
 
   bool model_from_memory_{false};
