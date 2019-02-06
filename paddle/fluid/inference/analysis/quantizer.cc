@@ -100,7 +100,7 @@ void Quantizer::CalculateScales(const std::string& op_name,
       break;
     }
     case ScaleAlgo::KL:
-      scale_ptr[0] = GetOptimalScalingFactor(
+      scale_ptr[0] = GetKLScalingFactor(
           {lod_tensor.data<float>(), lod_tensor.numel(), 1}, var_max_range);
       break;
     default:
@@ -116,8 +116,8 @@ float Quantizer::GetMaxScalingFactor(ConstEigenVectorArrayMap activation_blob,
 }
 
 // Using the KL-divergence method get the most precise scaling factor.
-float Quantizer::GetOptimalScalingFactor(
-    ConstEigenVectorArrayMap activation_blob, int num_quantized_bins) {
+float Quantizer::GetKLScalingFactor(ConstEigenVectorArrayMap activation_blob,
+                                    int num_quantized_bins) {
   float max_val = activation_blob.maxCoeff();
   float min_val = activation_blob.minCoeff();
   std::vector<int> hist;

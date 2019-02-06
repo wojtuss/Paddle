@@ -76,8 +76,8 @@ class Quantizer final {
   bool RunQuantizePass();
   bool RunOptimizePass();
   bool SaveModel();
-  float GetOptimalScalingFactor(ConstEigenVectorArrayMap eigen_data_vector,
-                                int num_quantized_bins = 255);
+  float GetKLScalingFactor(ConstEigenVectorArrayMap eigen_data_vector,
+                           int num_quantized_bins = 255);
   float GetMaxScalingFactor(ConstEigenVectorArrayMap activation_blob,
                             float var_max_range);
   std::pair<std::vector<int>, float> Histogram(
