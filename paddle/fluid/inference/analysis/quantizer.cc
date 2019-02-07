@@ -254,34 +254,33 @@ bool Quantizer::RunWarmup() {
 }
 
 bool Quantizer::CalculateScales() {
+  using VariableNameMap = std::map<std::string, std::vector<std::string>>;
   // TODO(sfraczek): Add tensor collection and scale calculation.
-  /*
-   *   std::map<std::string, std::map<std::string, LoDTensor>> gathered_data;
-   *   for (auto *op : infer_program_->Block(0).AllOps()) {
-   *     if (op->HasAttr("use_quantizer") && op->Attr<bool>("use_quantizer")) {
-   *       const VariableNameMap &connections = op->Inputs();
-   *       const VariableNameMap &connections_out = op->Outputs();
-   *       connections.insert(connections.end(), connections_out.begin(),
-   *                          connections_out.end());
-   *
-   *       for (auto &conn_name : connections) {
-   *         Variable *var = scope_.FindVar(var_name);
-   *         PADDLE_ENFORCE(var, "%s is not in the scope", var_name);
-   *         PADDLE_ENFORCE(var->IsType<LoDTensor>(),
-   *                        "Only support lod tensor now.");
-   *         LoDTensor *var_tensor = var->GetMutable<LoDTensor>();
-   *
-   *         CalculateSingleScale(...);
-   *
-   *         //...
-   *       }
-   *     }
-   *   }
-   */
+  // std::map<std::string, std::map<std::string, LoDTensor>> gathered_data;
+  // for (auto* op : infer_program_->Block(0).AllOps()) {
+  //   if (op->HasAttr("use_quantizer") &&
+  //       boost::get<bool>(op->GetAttr("use_quantizer"))) {
+  //     VariableNameMap connections = op->Inputs();
+  //     VariableNameMap connections_out = op->Outputs();
+  //     connections.insert(connections.end(), connections_out.end(),
+  //                        connections_out.end());
+  // for (auto& conn_name : connections) {
+  //   Variable* var = scope_.FindVar(var_name);
+  //   PADDLE_ENFORCE(var, "%s is not in the scope", var_name);
+  //   PADDLE_ENFORCE(var->IsType<LoDTensor>(),
+  //                  "Only support lod tensor now.");
+  //   LoDTensor* var_tensor = var->GetMutable<LoDTensor>();
+
+  //   CalculateSingleScale(op->type(), conn_name, var_name, var);
+
+  // }
+  // }
+  // }
+
   return true;
 }
 
-void Quantizer::CalculateSingleScale(const std::string& op_name,
+void Quantizer::CalculateSingleScale(const std::string& op_type_name,
                                      const std::string& conn_name,
                                      const std::string& var_name,
                                      const LoDTensor& var_tensor) {
@@ -289,7 +288,7 @@ void Quantizer::CalculateSingleScale(const std::string& op_name,
       var_tensor.numel() > 0,
       "Quantizer: LoDTensor of variable for quantization should not be empty.");
 
-  auto rule = config_->scale_algo(op_name, conn_name);
+  auto rule = config_->scale_algo(op_type_name, conn_name);
   switch (rule) {
     case ScaleAlgo::NONE:
       return;
