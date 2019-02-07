@@ -104,8 +104,8 @@ std::vector<int> ExpandQuantizedBins(std::vector<int> quantized_bins,
 }
 
 // Calculate the entropy.
-float safe_entropy(std::vector<int> reference_distr_P, int P_sum,
-                   std::vector<int> candidate_distr_Q, int Q_sum) {
+float SafeEntropy(std::vector<int> reference_distr_P, int P_sum,
+                  std::vector<int> candidate_distr_Q, int Q_sum) {
   PADDLE_ENFORCE_EQ(reference_distr_P.size(), candidate_distr_Q.size());
   float tmp_sum1 = 0;
   float tmp_sum2 = 0;
@@ -211,7 +211,7 @@ std::pair<QuantMax, LoDTensor> GetKLScalingFactor(LoDTensor var_tensor) {
     int Q_sum =
         std::accumulate(candidate_distr_Q.begin(), candidate_distr_Q.end(), 0);
     auto kl_divergence =
-        safe_entropy(reference_distr_P, P_sum, candidate_distr_Q, Q_sum);
+        SafeEntropy(reference_distr_P, P_sum, candidate_distr_Q, Q_sum);
     if (!kl_inited) {
       min_kl_divergence = kl_divergence;
       min_kl_index = i;
