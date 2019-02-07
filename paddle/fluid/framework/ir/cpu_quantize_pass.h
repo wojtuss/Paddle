@@ -23,7 +23,7 @@ namespace framework {
 namespace ir {
 
 /*
- * CPU quantize pass
+ * Quantize weights and biases, insert (de)quantize operators.
  */
 class CPUQuantizePass : public Pass {
  public:

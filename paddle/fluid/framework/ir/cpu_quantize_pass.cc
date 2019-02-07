@@ -22,8 +22,8 @@ std::unique_ptr<ir::Graph> CPUQuantizePass::ApplyImpl(
     std::unique_ptr<ir::Graph> graph) const {
   PADDLE_ENFORCE(graph.get());
 
-  // insert quantize/dequantize
-  // quantize weights and biases
+  // TODO(sfraczek): insert quantize/dequantize
+  // TODO(sfraczek): quantize weights and biases
 
   return graph;
 }

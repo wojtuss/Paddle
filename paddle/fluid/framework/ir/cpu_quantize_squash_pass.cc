@@ -22,7 +22,7 @@ std::unique_ptr<ir::Graph> CPUQuantizeSquashPass::ApplyImpl(
     std::unique_ptr<ir::Graph> graph) const {
   PADDLE_ENFORCE(graph.get());
 
-  // Squash dequantize->quantize pattern to requantize
+  // TODO(sfraczek): Squash dequantize->quantize pattern to requantize
 
   return graph;
 }
