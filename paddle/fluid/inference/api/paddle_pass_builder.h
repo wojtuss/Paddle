@@ -155,7 +155,6 @@ class CpuPassStrategy : public PassStrategy {
   void EnableQuantizer() override {
     if (!use_quantizer_) {
       passes_.push_back("cpu_quantize_placement_pass");
-      // TODO(sfraczek): Add optimize_pass
     }
     use_quantizer_ = true;
   }
