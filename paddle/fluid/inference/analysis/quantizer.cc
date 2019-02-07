@@ -248,8 +248,7 @@ bool Quantizer::RunWarmup() {
   std::vector<PaddleTensor> output_slots;
 
   // Run the inference program
-  predictor_run_(*warmup_data.get(), &output_slots,
-                 config_->warmup_batch_size());
+  predictor_run_(*warmup_data, &output_slots, config_->warmup_batch_size());
 
   return true;
 }
