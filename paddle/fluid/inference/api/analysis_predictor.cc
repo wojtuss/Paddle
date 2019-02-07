@@ -392,7 +392,7 @@ void AnalysisPredictor::OptimizeInferenceProgram() {
   if (config_.use_quantizer_) {
     LOG(INFO) << "quantization is enabled";
     argument_.SetQuantEnabledOpTypes(
-        config_.GetQuantizerConfig()->GetQuantizeEnabledOpTypes());
+        config_.GetQuantizerConfig()->quantize_enabled_op_types());
   }
 
   auto passes = config_.pass_builder()->AllPasses();
