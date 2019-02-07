@@ -62,19 +62,21 @@ class Quantizer final {
         config_(config),
         predictor_run_(predictor_run) {}
 
+  // Execute full quantization procedure.
   bool Quantize();
 
  private:
+  // Run single warmup iteration
   bool RunWarmup();
+  // Gather data from variables and calculate scales for them.
   bool CalculateScales();
+  // Calculate a scale for tensor based on ScaleAlgo rules.
   void CalculateSingleScale(const std::string& op_name,
                             const std::string& conn_name,
                             const std::string& var_name,
                             const LoDTensor& var_tensor);
   bool RunQuantizePasses();
   bool SaveModel();
-  std::vector<int> ExpandQuantizedBins(std::vector<int> quantized_bins,
-                                       std::vector<int> reference_bins);
 
  private:
   Scope* scope_;

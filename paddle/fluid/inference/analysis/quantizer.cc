@@ -39,9 +39,9 @@ std::pair<QuantMax, LoDTensor> GetMaxScalingFactor(LoDTensor var_tensor) {
   float min_val = eigen_tensor.minCoeff();
   bool is_positive = min_val >= 0.0f;
   auto quant_max = is_positive ? QuantMax::U8_MAX : QuantMax::S8_MAX;
-  if (!(quant_max == QuantMax::U8_MAX || quant_max == QuantMax::S8_MAX))
-    throw std::runtime_error(
-        "Quantizer: Only 8 bit quantization is supported now.");
+
+  PADDLE_ENFORCE(quant_max == QuantMax::U8_MAX || quant_max == QuantMax::S8_MAX,
+                 "Quantizer: Only 8 bit quantization is supported now.");
 
   LoDTensor scale_tensor;
   scale_tensor.Resize({1});
@@ -59,6 +59,7 @@ std::pair<std::vector<int>, float> Histogram(
     int num_bins = 2048) {
   auto bin_width = (max_val - min_val) / num_bins;
   std::vector<int> hist(num_bins);
+
   // TODO(sfraczek): Try #pragma omp parallel for
   for (int i = 0; i < eigen_tensor.size(); i++) {
     int bin = static_cast<int>(floor((eigen_tensor[i] - min_val) / bin_width));
@@ -79,7 +80,6 @@ std::vector<int> ExpandQuantizedBins(std::vector<int> quantized_bins,
   int j_start = 0;
   int j_end = num_merged_bins;
   for (size_t idx = 0; idx < quantized_bins.size(); idx++) {
-    // auto zero_count = reference_bins[j_start:j_end].count(0);
     int zero_count =
         std::count(&reference_bins[j_start], &reference_bins[j_end], 0);
     num_merged_bins = j_end - j_start;
@@ -115,14 +115,12 @@ float SafeEntropy(std::vector<int> reference_distr_P, int P_sum,
       tmp_sum1 += 0;
       tmp_sum2 += 0;
     } else {
-      if (q_idx == 0) {
-        throw std::runtime_error("Quantizer: Fatal error!, idx = " +
-                                 std::to_string(idx) + " qindex = 0! p_idx = " +
-                                 std::to_string(p_idx));
-      }
-      tmp_sum1 += p_idx * (log(Q_sum * p_idx));
-      tmp_sum2 += p_idx * (log(P_sum * q_idx));
+      PADDLE_ENFORCE(q_idx != 0,
+                     "Quantizer: Fatal error!, idx = " + std::to_string(idx) +
+                         " qindex = 0! p_idx = " + std::to_string(p_idx));
     }
+    tmp_sum1 += p_idx * (log(Q_sum * p_idx));
+    tmp_sum2 += p_idx * (log(P_sum * q_idx));
   }
   return (tmp_sum1 - tmp_sum2) / P_sum;
 }
@@ -136,12 +134,9 @@ std::pair<QuantMax, LoDTensor> GetKLScalingFactor(LoDTensor var_tensor) {
   bool is_positive = min_val >= 0.0f;
   auto quant_max = is_positive ? QuantMax::U8_MAX : QuantMax::S8_MAX;
 
-  int num_quantized_bins;
-  if (quant_max == QuantMax::U8_MAX || quant_max == QuantMax::S8_MAX)
-    num_quantized_bins = 255;
-  else
-    throw std::runtime_error(
-        "Quantizer: Only 8 bit quantization is supported now.");
+  PADDLE_ENFORCE(quant_max == QuantMax::U8_MAX || quant_max == QuantMax::S8_MAX,
+                 "Quantizer: Only 8 bit quantization is supported now.");
+  int num_quantized_bins = 255;
 
   std::vector<int> hist;
   float bin_width;
@@ -243,7 +238,6 @@ std::pair<QuantMax, LoDTensor> GetKLScalingFactor(LoDTensor var_tensor) {
 
 }  // namespace
 
-// Run single warmup iteration
 bool Quantizer::RunWarmup() {
   VLOG(3) << "Predictor: run a quantization warmup iteration";
   auto warmup_data = config_->warmup_data();
@@ -260,8 +254,8 @@ bool Quantizer::RunWarmup() {
   return true;
 }
 
-// Gather data from variables and calculate scales for them
 bool Quantizer::CalculateScales() {
+  // TODO(sfraczek): Add tensor collection and scale calculation.
   /*
    *   std::map<std::string, std::map<std::string, LoDTensor>> gathered_data;
    *   for (auto *op : infer_program_->Block(0).AllOps()) {
@@ -292,12 +286,9 @@ void Quantizer::CalculateSingleScale(const std::string& op_name,
                                      const std::string& conn_name,
                                      const std::string& var_name,
                                      const LoDTensor& var_tensor) {
-  // adds pairs variable name -> LoDTensor with scale to the scales map
-
-  if (var_tensor.numel() == 0)
-    throw std::runtime_error(
-        "Quantizer: LoDTensor of variable for quantization should not be "
-        "empty.");
+  PADDLE_ENFORCE(
+      var_tensor.numel() > 0,
+      "Quantizer: LoDTensor of variable for quantization should not be empty.");
 
   auto rule = config_->scale_algo(op_name, conn_name);
   switch (rule) {
@@ -341,8 +332,8 @@ bool Quantizer::Quantize() {
   if (!RunWarmup()) return false;
   if (!CalculateScales()) return false;
   // run quantization and optimization passes
-  // save quantized model if required
   if (!RunQuantizePasses()) return false;
+  // save quantized model if required
   if (!SaveModel()) return false;
 
   return true;
