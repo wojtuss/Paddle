@@ -248,7 +248,7 @@ std::pair<QuantMax, LoDTensor> GetKLScalingFactor(LoDTensor var_tensor) {
 // Run single warmup iteration
 bool Quantizer::RunWarmup() {
   VLOG(3) << "Predictor: run a quantization warmup iteration";
-  auto warmup_data = config_->GetWarmupData();
+  auto warmup_data = config_->warmup_data();
 
   PADDLE_ENFORCE_NOT_NULL(warmup_data,
                           "Warmup data cannot be NULL in the config.");
@@ -257,7 +257,7 @@ bool Quantizer::RunWarmup() {
 
   // Run the inference program
   predictor_run_(*warmup_data.get(), &output_slots,
-                 config_->GetWarmupBatchSize());
+                 config_->warmup_batch_size());
 
   return true;
 }
@@ -301,7 +301,7 @@ void Quantizer::CalculateSingleScale(const std::string& op_name,
         "Quantizer: LoDTensor of variable for quantization should not be "
         "empty.");
 
-  auto rule = config_->GetScaleAlgo(op_name, conn_name);
+  auto rule = config_->scale_algo(op_name, conn_name);
   switch (rule) {
     case ScaleAlgo::NONE:
       return;

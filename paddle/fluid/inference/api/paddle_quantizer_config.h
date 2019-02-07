@@ -38,40 +38,59 @@ enum class QuantMax : unsigned int {
 struct QuantizerConfig {
   QuantizerConfig();
 
-  void SetScaleAlgo(std::string op_name, std::string var_name, ScaleAlgo alg) {
-    rules_[op_name][var_name] = alg;
-  }
-
-  /** Specify the operator type list to use INT8 kernel.
-   * @param op_list the operator type list.
+  /** Specify a quantization algorithm for a connection (input/output) of the
+   * operator type.
+   * @param op_type_name the operator's name.
+   * @param conn_name name of the connection (input/output) of the operator.
+   * @param alg the algorithm for computing scale.
    */
-  void SetOps(std::unordered_set<std::string> op_list) {
-    quantize_enabled_op_types_ = op_list;
+  void SetScaleAlgo(std::string op_type_name, std::string conn_name,
+                    ScaleAlgo alg) {
+    rules_[op_type_name][conn_name] = alg;
   }
 
+  /** Get the quantization algorithm for a connection (input/output) of the
+   * operator type.
+   * @param op_type_name the operator's name.
+   * @param conn_name name of the connection (input/output) of the operator.
+   * @return the algorithm for computing scale.
+   */
+  ScaleAlgo scale_algo(const std::string& op_type_name,
+                       const std::string& conn_name) const {
+    return rules_.at(op_type_name).at(conn_name);
+  }
+
+  /** Set the batch of data to be used for warm-up iteration.
+   * @param data batch of data.
+   */
   void SetWarmupData(std::shared_ptr<std::vector<PaddleTensor>> data) {
     warmup_data_ = data;
   }
 
-  std::shared_ptr<std::vector<PaddleTensor>> GetWarmupData() {
+  /** Get the batch of data used for warm-up iteration.
+   * @return batch of data.
+   */
+  std::shared_ptr<std::vector<PaddleTensor>> warmup_data() {
     return warmup_data_;
   }
 
-  int GetWarmupBatchSize() { return warmup_bs; }
-  const std::unordered_set<std::string>& GetQuantizeEnabledOpTypes() {
-    return quantize_enabled_op_types_;
+  void SetWamupBatchSize(int batch_size) { warmup_bs = batch_size; }
+
+  int warmup_batch_size() const { return warmup_bs; }
+
+  void SetQuantizeEnabledOpTypes(std::unordered_set<std::string> op_list) {
+    quantize_enabled_op_types_ = op_list;
   }
 
-  ScaleAlgo GetScaleAlgo(const std::string& op_name,
-                         const std::string& conn_name) {
-    return rules_[op_name][conn_name];
+  const std::unordered_set<std::string>& quantize_enabled_op_types() const {
+    return quantize_enabled_op_types_;
   }
 
  protected:
   std::map<std::string, std::map<std::string, ScaleAlgo>> rules_;
   std::unordered_set<std::string> quantize_enabled_op_types_;
   std::shared_ptr<std::vector<PaddleTensor>> warmup_data_;
-  int warmup_bs{0};
+  int warmup_bs{1};
 };
 
 }  // namespace paddle
