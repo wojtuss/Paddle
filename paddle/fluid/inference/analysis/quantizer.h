@@ -51,6 +51,9 @@ typedef std::function<bool(const std::vector<PaddleTensor>& inputs,
                            int batch_size)>
     PredictorRun;
 
+/* Class that performs quantization by running warm-up, calculating
+ * scales and quantizing the graph by running quantize passes.
+ */
 class Quantizer final {
  public:
   explicit Quantizer(Scope* scope,
