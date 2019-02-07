@@ -34,9 +34,9 @@ using ConstEigenVectorArrayMap =
 namespace {
 
 std::pair<QuantMax, LoDTensor> GetMaxScalingFactor(LoDTensor var_tensor) {
-  ConstEigenVectorArrayMap activation_blob{var_tensor.data<float>(),
-                                           var_tensor.numel(), 1};
-  float min_val = activation_blob.minCoeff();
+  ConstEigenVectorArrayMap eigen_tensor{var_tensor.data<float>(),
+                                        var_tensor.numel(), 1};
+  float min_val = eigen_tensor.minCoeff();
   bool is_positive = min_val >= 0.0f;
   auto quant_max = is_positive ? QuantMax::U8_MAX : QuantMax::S8_MAX;
   if (!(quant_max == QuantMax::U8_MAX || quant_max == QuantMax::S8_MAX))
@@ -47,7 +47,7 @@ std::pair<QuantMax, LoDTensor> GetMaxScalingFactor(LoDTensor var_tensor) {
   scale_tensor.Resize({1});
   auto* scale_ptr = scale_tensor.mutable_data<float>(CPUPlace());
 
-  float max_abs = activation_blob.abs().maxCoeff();
+  float max_abs = eigen_tensor.abs().maxCoeff();
   scale_ptr[0] = static_cast<float>(static_cast<unsigned>(quant_max) / max_abs);
 
   return std::make_pair(quant_max, scale_tensor);
@@ -55,20 +55,19 @@ std::pair<QuantMax, LoDTensor> GetMaxScalingFactor(LoDTensor var_tensor) {
 
 // Returns histogram and bin width
 std::pair<std::vector<int>, float> Histogram(
-    ConstEigenVectorArrayMap activation_blob, float min_val, float max_val,
+    ConstEigenVectorArrayMap eigen_tensor, float min_val, float max_val,
     int num_bins = 2048) {
   auto bin_width = (max_val - min_val) / num_bins;
   std::vector<int> hist(num_bins);
   // TODO(sfraczek): Try #pragma omp parallel for
-  for (int i = 0; i < activation_blob.size(); i++) {
-    int bin =
-        static_cast<int>(floor((activation_blob[i] - min_val) / bin_width));
-    hist[bin] = activation_blob[i];
+  for (int i = 0; i < eigen_tensor.size(); i++) {
+    int bin = static_cast<int>(floor((eigen_tensor[i] - min_val) / bin_width));
+    hist[bin] = eigen_tensor[i];
   }
   // TODO(sfraczek): Try the below
-  // auto bin_blob = (activation_blob - min_val) / bin_width
+  // auto bin_blob = (eigen_tensor - min_val) / bin_width
   // for int (i = 0; i < bin_blob.size(); i++)
-  //   hist[bin_blob[i]]=activation_blob[i];
+  //   hist[bin_blob[i]]=eigen_tensor[i];
 
   return std::make_pair(std::move(hist), std::move(bin_width));
 }
@@ -130,10 +129,10 @@ float SafeEntropy(std::vector<int> reference_distr_P, int P_sum,
 
 // Using the KL-divergence method get the most precise scaling factor.
 std::pair<QuantMax, LoDTensor> GetKLScalingFactor(LoDTensor var_tensor) {
-  ConstEigenVectorArrayMap activation_blob{var_tensor.data<float>(),
-                                           var_tensor.numel(), 1};
-  float max_val = activation_blob.maxCoeff();
-  float min_val = activation_blob.minCoeff();
+  ConstEigenVectorArrayMap eigen_tensor{var_tensor.data<float>(),
+                                        var_tensor.numel(), 1};
+  float max_val = eigen_tensor.maxCoeff();
+  float min_val = eigen_tensor.minCoeff();
   bool is_positive = min_val >= 0.0f;
   auto quant_max = is_positive ? QuantMax::U8_MAX : QuantMax::S8_MAX;
 
@@ -149,13 +148,12 @@ std::pair<QuantMax, LoDTensor> GetKLScalingFactor(LoDTensor var_tensor) {
   int starting_iter;
   int ending_iter;
   if (is_positive) {
-    std::tie(hist, bin_width) =
-        Histogram(activation_blob, min_val, max_val, 2048);
+    std::tie(hist, bin_width) = Histogram(eigen_tensor, min_val, max_val, 2048);
     ending_iter = 2047;
     starting_iter = static_cast<int>(ending_iter * 0.7);
   } else {
     float th = std::max(abs(max_val), abs(min_val));
-    std::tie(hist, bin_width) = Histogram(activation_blob, -th, th, 2048);
+    std::tie(hist, bin_width) = Histogram(eigen_tensor, -th, th, 2048);
     starting_iter = 0;
     ending_iter = 2047;
     if (abs(max_val) > abs(min_val)) {
@@ -180,7 +178,7 @@ std::pair<QuantMax, LoDTensor> GetKLScalingFactor(LoDTensor var_tensor) {
       starting_iter = static_cast<int>(0.6 * ending_iter);
     }
   }
-  auto P_sum = activation_blob.size();
+  auto P_sum = eigen_tensor.size();
   int min_kl_divergence = 0;
   int min_kl_index = 0;
   bool kl_inited = false;
