@@ -76,21 +76,21 @@ struct QuantizerConfig {
     return warmup_data_;
   }
 
-  void SetWamupBatchSize(int batch_size) { warmup_bs = batch_size; }
+  void SetWarmupBatchSize(int batch_size) { warmup_bs = batch_size; }
 
   int warmup_batch_size() const { return warmup_bs; }
 
-  void SetQuantizeEnabledOpTypes(std::unordered_set<std::string> op_list) {
-    quantize_enabled_op_types_ = op_list;
+  void SetEnabledOpTypes(std::unordered_set<std::string> op_list) {
+    enabled_op_types_ = op_list;
   }
 
-  const std::unordered_set<std::string>& quantize_enabled_op_types() const {
-    return quantize_enabled_op_types_;
+  const std::unordered_set<std::string>& enabled_op_types() const {
+    return enabled_op_types_;
   }
 
  protected:
   std::map<std::string, std::map<std::string, ScaleAlgo>> rules_;
-  std::unordered_set<std::string> quantize_enabled_op_types_;
+  std::unordered_set<std::string> enabled_op_types_;
   std::shared_ptr<std::vector<PaddleTensor>> warmup_data_;
   int warmup_bs{1};
 };

@@ -152,7 +152,7 @@ void AnalysisConfig::EnableQuantizer() {
   Update();
 }
 
-std::shared_ptr<QuantizerConfig> AnalysisConfig::GetQuantizerConfig() {
+std::shared_ptr<QuantizerConfig> AnalysisConfig::quantizer_config() {
   if (!quantizer_config_) quantizer_config_.reset(new QuantizerConfig());
   return quantizer_config_;
 }

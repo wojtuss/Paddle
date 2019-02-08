@@ -33,9 +33,10 @@ using ConstEigenVectorArrayMap =
 
 namespace {
 
-std::pair<QuantMax, LoDTensor> GetMaxScalingFactor(LoDTensor var_tensor) {
-  ConstEigenVectorArrayMap eigen_tensor{var_tensor.data<float>(),
-                                        var_tensor.numel(), 1};
+std::pair<QuantMax, LoDTensor> GetMaxScalingFactor(
+    const LoDTensor* var_tensor) {
+  ConstEigenVectorArrayMap eigen_tensor{var_tensor->data<float>(),
+                                        var_tensor->numel(), 1};
   float min_val = eigen_tensor.minCoeff();
   bool is_positive = min_val >= 0.0f;
   auto quant_max = is_positive ? QuantMax::U8_MAX : QuantMax::S8_MAX;
@@ -126,9 +127,9 @@ float SafeEntropy(std::vector<int> reference_distr_P, int P_sum,
 }
 
 // Using the KL-divergence method get the most precise scaling factor.
-std::pair<QuantMax, LoDTensor> GetKLScalingFactor(LoDTensor var_tensor) {
-  ConstEigenVectorArrayMap eigen_tensor{var_tensor.data<float>(),
-                                        var_tensor.numel(), 1};
+std::pair<QuantMax, LoDTensor> GetKLScalingFactor(const LoDTensor* var_tensor) {
+  ConstEigenVectorArrayMap eigen_tensor{var_tensor->data<float>(),
+                                        var_tensor->numel(), 1};
   float max_val = eigen_tensor.maxCoeff();
   float min_val = eigen_tensor.minCoeff();
   bool is_positive = min_val >= 0.0f;
@@ -256,39 +257,37 @@ bool Quantizer::RunWarmup() {
 bool Quantizer::CalculateScales() {
   using VariableNameMap = std::map<std::string, std::vector<std::string>>;
   // TODO(sfraczek): Add tensor collection and scale calculation.
-  // std::map<std::string, std::map<std::string, LoDTensor>> gathered_data;
-  // for (auto* op : infer_program_->Block(0).AllOps()) {
-  //   if (op->HasAttr("use_quantizer") &&
-  //       boost::get<bool>(op->GetAttr("use_quantizer"))) {
-  //     VariableNameMap connections = op->Inputs();
-  //     VariableNameMap connections_out = op->Outputs();
-  //     connections.insert(connections.end(), connections_out.end(),
-  //                        connections_out.end());
-  // for (auto& conn_name : connections) {
-  //   Variable* var = scope_.FindVar(var_name);
-  //   PADDLE_ENFORCE(var, "%s is not in the scope", var_name);
-  //   PADDLE_ENFORCE(var->IsType<LoDTensor>(),
-  //                  "Only support lod tensor now.");
-  //   LoDTensor* var_tensor = var->GetMutable<LoDTensor>();
+  std::map<std::string, std::map<std::string, LoDTensor>> gathered_data;
+  for (auto* op : infer_program_->Block(0).AllOps()) {
+    if (op->HasAttr("use_quantizer") &&
+        boost::get<bool>(op->GetAttr("use_quantizer"))) {
+      VariableNameMap connections = op->Inputs();
+      VariableNameMap connections_out = op->Outputs();
+      connections.insert(connections_out.begin(), connections_out.end());
+      for (auto const& conn_name : connections) {
+        auto& var_name = conn_name.first;
+        auto* var = scope_->FindVar(var_name);
+        PADDLE_ENFORCE(var, "%s is not in the scope", var_name);
+        PADDLE_ENFORCE(var->IsType<LoDTensor>(),
+                       "Only support lod tensor now.");
+        LoDTensor* var_tensor = var->GetMutable<LoDTensor>();
 
-  //   CalculateSingleScale(op->type(), conn_name, var_name, var);
-
-  // }
-  // }
-  // }
+        CalculateSingleScale(op->Type(), var_name, var_tensor);
+      }
+    }
+  }
 
   return true;
 }
 
 void Quantizer::CalculateSingleScale(const std::string& op_type_name,
-                                     const std::string& conn_name,
                                      const std::string& var_name,
-                                     const LoDTensor& var_tensor) {
+                                     const LoDTensor* var_tensor) {
   PADDLE_ENFORCE(
-      var_tensor.numel() > 0,
+      var_tensor->numel() > 0,
       "Quantizer: LoDTensor of variable for quantization should not be empty.");
 
-  auto rule = config_->scale_algo(op_type_name, conn_name);
+  auto rule = config_->scale_algo(op_type_name, var_name);
   switch (rule) {
     case ScaleAlgo::NONE:
       return;
