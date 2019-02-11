@@ -138,6 +138,7 @@ float SafeEntropy(std::vector<int> reference_distr_P, int P_sum,
 std::pair<QuantMax, LoDTensor> GetKLScalingFactor(const LoDTensor* var_tensor) {
   ConstEigenVectorArrayMap eigen_tensor{var_tensor->data<float>(),
                                         var_tensor->numel(), 1};
+  int precision_hist_num_bins = 2048;
   float max_val = eigen_tensor.maxCoeff();
   float min_val = eigen_tensor.minCoeff();
   bool is_positive = min_val >= 0.0f;
@@ -152,14 +153,16 @@ std::pair<QuantMax, LoDTensor> GetKLScalingFactor(const LoDTensor* var_tensor) {
   int starting_iter;
   int ending_iter;
   if (is_positive) {
-    std::tie(hist, bin_width) = Histogram(eigen_tensor, min_val, max_val, 2048);
-    ending_iter = 2047;
+    std::tie(hist, bin_width) =
+        Histogram(eigen_tensor, min_val, max_val, precision_hist_num_bins);
+    ending_iter = precision_hist_num_bins - 1;
     starting_iter = static_cast<int>(ending_iter * 0.7);
   } else {
     float th = std::max(std::abs(max_val), std::abs(min_val));
-    std::tie(hist, bin_width) = Histogram(eigen_tensor, -th, th, 2048);
+    std::tie(hist, bin_width) =
+        Histogram(eigen_tensor, -th, th, precision_hist_num_bins);
     starting_iter = 0;
-    ending_iter = 2047;
+    ending_iter = precision_hist_num_bins - 1;
     if (std::abs(max_val) > std::abs(min_val)) {
       while (starting_iter < ending_iter) {
         if (hist[starting_iter] == 0) {
@@ -188,7 +191,8 @@ std::pair<QuantMax, LoDTensor> GetKLScalingFactor(const LoDTensor* var_tensor) {
   bool kl_inited = false;
   for (int i = starting_iter; i <= ending_iter; i++) {
     std::vector<int> reference_distr_P(&hist[0], &hist[i]);
-    auto outliers_count = std::accumulate(&hist[i], &hist[2048], 0);
+    auto outliers_count =
+        std::accumulate(&hist[i], &hist[precision_hist_num_bins], 0);
     if (reference_distr_P[i - 1] == 0) {
       continue;
     }
