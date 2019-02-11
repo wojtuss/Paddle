@@ -27,6 +27,7 @@ std::unique_ptr<ir::Graph> CPUQuantizePlacementPass::ApplyImpl(
   for (const Node* n : graph->Nodes()) {
     if (n->IsOp()) {
       auto* op = n->Op();
+      std::cout << "--- op type: " << op->Type() << std::endl;
       if (op->HasAttr("use_quantizer") || op->HasProtoAttr("use_quantizer")) {
         if (op_types_list.empty()) {
           op->SetAttr("use_quantizer", true);
