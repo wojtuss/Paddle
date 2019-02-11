@@ -58,9 +58,7 @@ struct QuantizerConfig {
    * @return the algorithm for computing scale.
    */
   ScaleAlgo scale_algo(const std::string& op_type_name,
-                       const std::string& conn_name) const {
-    return rules_.at(op_type_name).at(conn_name);
-  }
+                       const std::string& conn_name) const;
 
   /** Set the batch of data to be used for warm-up iteration.
    * @param data batch of data.

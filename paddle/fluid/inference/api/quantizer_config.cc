@@ -26,4 +26,13 @@ QuantizerConfig::QuantizerConfig() {
   rules_["pool2d"]["Input"] = ScaleAlgo::MAX;
 }
 
+ScaleAlgo QuantizerConfig::scale_algo(const std::string& op_type_name,
+                                      const std::string& conn_name) const {
+  if (rules_.find(op_type_name) != rules_.end()) {
+    auto op_rule = rules_.at(op_type_name);
+    if (op_rule.find(conn_name) != op_rule.end()) return op_rule.at(conn_name);
+  }
+  return ScaleAlgo::MAX;
+}
+
 }  // namespace paddle
