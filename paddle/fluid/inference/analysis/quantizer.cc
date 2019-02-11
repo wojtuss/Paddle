@@ -60,6 +60,12 @@ std::pair<QuantMax, LoDTensor> GetMaxScalingFactor(
 std::pair<std::vector<int>, float> Histogram(
     ConstEigenVectorArrayMap eigen_tensor, float min_val, float max_val,
     int num_bins = 2048) {
+  PADDLE_ENFORCE(max_val > min_val,
+                 "Quantizer: To calculate Histogram, max_val (" +
+                     std::to_string(max_val) +
+                     ") must be greater "
+                     "than min_val (" +
+                     std::to_string(min_val) + ").");
   auto bin_width = (max_val - min_val) / num_bins;
   std::vector<int> hist(num_bins);
 
@@ -150,11 +156,11 @@ std::pair<QuantMax, LoDTensor> GetKLScalingFactor(const LoDTensor* var_tensor) {
     ending_iter = 2047;
     starting_iter = static_cast<int>(ending_iter * 0.7);
   } else {
-    float th = std::max(abs(max_val), abs(min_val));
+    float th = std::max(std::abs(max_val), std::abs(min_val));
     std::tie(hist, bin_width) = Histogram(eigen_tensor, -th, th, 2048);
     starting_iter = 0;
     ending_iter = 2047;
-    if (abs(max_val) > abs(min_val)) {
+    if (std::abs(max_val) > std::abs(min_val)) {
       while (starting_iter < ending_iter) {
         if (hist[starting_iter] == 0) {
           starting_iter += 1;
