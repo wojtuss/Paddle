@@ -23,7 +23,7 @@ std::unique_ptr<ir::Graph> CPUQuantizePlacementPass::ApplyImpl(
     std::unique_ptr<ir::Graph> graph) const {
   VLOG(3) << "Applies CPU quantization placement strategy.";
   const auto& op_types_list =
-      Get<std::unordered_set<std::string>>("quant_enabled_op_types");
+      Get<std::unordered_set<std::string>>("quantize_enabled_op_types");
   for (const Node* n : graph->Nodes()) {
     if (n->IsOp()) {
       auto* op = n->Op();
@@ -44,6 +44,6 @@ std::unique_ptr<ir::Graph> CPUQuantizePlacementPass::ApplyImpl(
 }  // namespace framework
 }  // namespace paddle
 
-REGISTER_PASS(int8_placement_pass,
+REGISTER_PASS(cpu_quantize_placement_pass,
               paddle::framework::ir::CPUQuantizePlacementPass)
-    .RequirePassAttr("quant_enabled_op_types");
+    .RequirePassAttr("quantize_enabled_op_types");

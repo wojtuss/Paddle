@@ -1,4 +1,4 @@
-cc_library(subgraph_detector SRCS subgraph_detector.cc DEPS proto_desc)
+cc_library(subgraph_detector SRCS subgraph_detector.cc DEPS proto_desc graph_traits)
 if(WITH_TESTING)
   add_dependencies(subgraph_detector gtest)
 endif()
