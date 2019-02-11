@@ -290,6 +290,8 @@ void Quantizer::CalculateSingleScale(const std::string& op_type_name,
       var_tensor->numel() > 0,
       "Quantizer: LoDTensor of variable for quantization should not be empty.");
 
+  if (scales_.find(var_name) != scales_.end()) return;
+
   auto rule = config_->scale_algo(op_type_name, conn_name);
   switch (rule) {
     case ScaleAlgo::NONE:
