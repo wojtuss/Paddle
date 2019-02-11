@@ -62,8 +62,9 @@ void IRPassManager::CreatePasses(Argument *argument,
                     argument->mkldnn_enabled_op_types()));
     }
     if (pass_name == "cpu_quantize_placement_pass") {
-      pass->Set("enabled_op_types", new std::unordered_set<std::string>(
-                                        argument->enabled_op_types()));
+      pass->Set("quantize_enabled_op_types",
+                new std::unordered_set<std::string>(
+                    argument->quantize_enabled_op_types()));
     }
 
     if (pass_name == "tensorrt_subgraph_pass") {
