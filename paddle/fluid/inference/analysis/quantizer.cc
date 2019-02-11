@@ -21,6 +21,8 @@
 #include "paddle/fluid/framework/ir/pass.h"
 #include "paddle/fluid/framework/operator.h"
 #include "paddle/fluid/framework/type_defs.h"
+#include "paddle/fluid/inference/analysis/analyzer.h"
+#include "paddle/fluid/inference/analysis/argument.h"
 #include "paddle/fluid/platform/place.h"
 
 namespace paddle {
@@ -308,14 +310,33 @@ bool Quantizer::RunQuantizePasses() {
   auto cpu_quantize_pass =
       framework::ir::PassRegistry::Instance().Get("cpu_quantize_pass");
   cpu_quantize_pass->Set<VarQuantMaxAndScale>("quant_var_scales", &scales_);
+
+  // auto cpu_quantize_squash_pass =
+  //     framework::ir::PassRegistry::Instance().Get("cpu_quantize_squash_pass");
+
+  // auto cpu_quantize_scale_out_pass =
+  //     framework::ir::PassRegistry::Instance().Get(
+  //         "cpu_quantize_scale_out_pass");
+
   // TODO(sfraczek): How to run it?
 
-  auto cpu_quantize_squash_pass =
-      framework::ir::PassRegistry::Instance().Get("cpu_quantize_squash_pass");
-  auto cpu_quantize_scale_out_pass =
-      framework::ir::PassRegistry::Instance().Get(
-          "cpu_quantize_scale_out_pass");
-  // TODO(sfraczek): How to run it?
+  // auto passes = config_.pass_builder()->AllPasses();
+  // if (!config_.ir_optim()) {
+  // passes.clear();
+  //   LOG(INFO) << "ir_optim is turned off, no IR pass will be executed";
+  // }
+  Argument argument_;
+  argument_.SetAnalysisPasses({"cpu_quantize_pass", "cpu_quantize_squash_pass",
+                               "cpu_quantize_scale_out_pass"});
+  argument_.SetScopeNotOwned(scope_);
+  Analyzer().Run(&argument_);
+
+  PADDLE_ENFORCE(argument_.scope_valid());
+  VLOG(5) << "to prepare executor";
+  ARGUMENT_CHECK_FIELD((&argument_), ir_analyzed_program);
+  infer_program_.reset(
+      new framework::ProgramDesc(argument_.ir_analyzed_program()));
+  LOG(INFO) << "== optimize end ==";
 
   return true;
 }
