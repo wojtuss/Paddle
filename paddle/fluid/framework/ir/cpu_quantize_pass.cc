@@ -32,4 +32,5 @@ std::unique_ptr<ir::Graph> CPUQuantizePass::ApplyImpl(
 }  // namespace framework
 }  // namespace paddle
 
-REGISTER_PASS(cpu_quantize_pass, paddle::framework::ir::CPUQuantizePass);
+REGISTER_PASS(cpu_quantize_pass, paddle::framework::ir::CPUQuantizePass)
+    .RequirePassAttr("quant_var_scales");

@@ -277,6 +277,7 @@ bool Quantizer::CalculateScales() {
       VariableNameMap connections_out = op->Outputs();
       connections.insert(connections_out.begin(), connections_out.end());
       for (auto const& conn : connections) {
+        if (conn.second.size() == 0) continue;
         auto& var_name = conn.second[0];
         auto* var = scope_->FindVar(var_name);
         PADDLE_ENFORCE(var, "%s is not in the scope", var_name);
@@ -322,7 +323,7 @@ bool Quantizer::RunQuantizePasses() {
   // push the scales to the quantize pass
   auto cpu_quantize_pass =
       framework::ir::PassRegistry::Instance().Get("cpu_quantize_pass");
-  cpu_quantize_pass->Set<VarQuantMaxAndScale>("quant_var_scales", &scales_);
+  cpu_quantize_pass->Set("quant_var_scales", new VarQuantMaxAndScale(scales_));
 
   // auto cpu_quantize_squash_pass =
   //     framework::ir::PassRegistry::Instance().Get("cpu_quantize_squash_pass");
