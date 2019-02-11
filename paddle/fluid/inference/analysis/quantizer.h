@@ -74,6 +74,7 @@ class Quantizer final {
   bool CalculateScales();
   // Calculate a scale for tensor based on ScaleAlgo rules.
   void CalculateSingleScale(const std::string& op_name,
+                            const std::string& conn_name,
                             const std::string& var_name,
                             const LoDTensor* var_tensor);
   bool RunQuantizePasses();

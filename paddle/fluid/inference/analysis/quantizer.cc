@@ -266,15 +266,15 @@ bool Quantizer::CalculateScales() {
       VariableNameMap connections = op->Inputs();
       VariableNameMap connections_out = op->Outputs();
       connections.insert(connections_out.begin(), connections_out.end());
-      for (auto const& conn_name : connections) {
-        auto& var_name = conn_name.first;
+      for (auto const& conn : connections) {
+        auto& var_name = conn.second[0];
         auto* var = scope_->FindVar(var_name);
         PADDLE_ENFORCE(var, "%s is not in the scope", var_name);
         PADDLE_ENFORCE(var->IsType<LoDTensor>(),
                        "Only support lod tensor now.");
         LoDTensor* var_tensor = var->GetMutable<LoDTensor>();
 
-        CalculateSingleScale(op->Type(), var_name, var_tensor);
+        CalculateSingleScale(op->Type(), conn.first, var_name, var_tensor);
       }
     }
   }
@@ -283,13 +283,14 @@ bool Quantizer::CalculateScales() {
 }
 
 void Quantizer::CalculateSingleScale(const std::string& op_type_name,
+                                     const std::string& conn_name,
                                      const std::string& var_name,
                                      const LoDTensor* var_tensor) {
   PADDLE_ENFORCE(
       var_tensor->numel() > 0,
       "Quantizer: LoDTensor of variable for quantization should not be empty.");
 
-  auto rule = config_->scale_algo(op_type_name, var_name);
+  auto rule = config_->scale_algo(op_type_name, conn_name);
   switch (rule) {
     case ScaleAlgo::NONE:
       return;
