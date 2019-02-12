@@ -18,11 +18,11 @@
 #include <numeric>
 #include <utility>
 #include "paddle/fluid/framework/eigen.h"
+#include "paddle/fluid/framework/ir/fuse_pass_base.h"
 #include "paddle/fluid/framework/ir/pass.h"
 #include "paddle/fluid/framework/operator.h"
 #include "paddle/fluid/framework/type_defs.h"
 #include "paddle/fluid/inference/analysis/analyzer.h"
-#include "paddle/fluid/inference/analysis/argument.h"
 #include "paddle/fluid/platform/place.h"
 
 namespace paddle {
@@ -318,11 +318,6 @@ void Quantizer::CalculateSingleScale(const std::string& op_type_name,
 }
 
 bool Quantizer::RunQuantizePasses() {
-  // push the scales to the quantize pass
-  auto cpu_quantize_pass =
-      framework::ir::PassRegistry::Instance().Get("cpu_quantize_pass");
-  cpu_quantize_pass->Set("quant_var_scales", new VarQuantMaxAndScale(scales_));
-
   // auto cpu_quantize_squash_pass =
   //     framework::ir::PassRegistry::Instance().Get("cpu_quantize_squash_pass");
 
@@ -337,10 +332,38 @@ bool Quantizer::RunQuantizePasses() {
   // passes.clear();
   //   LOG(INFO) << "ir_optim is turned off, no IR pass will be executed";
   // }
+
   Argument argument_;
-  argument_.SetAnalysisPasses({"cpu_quantize_pass", "cpu_quantize_squash_pass",
-                               "cpu_quantize_scale_out_pass"});
+  argument_.SetScope(new framework::Scope);
+  argument_.SetUseGPU(false);
+  argument_.SetGPUDeviceId(0);
+  argument_.SetEnableMemoryOptim(false);
+  argument_.SetStaticMemoryOptim(false);
+  argument_.SetStaticMemoryOptimForceUpdate(false);
+  // auto program = std::unique_ptr<ProgramDesc>(new
+  // ProgramDesc(infer_program_.get()));
+  // argument_.SetMainProgram(program.release());
+  argument_.SetMainProgramNotOwned(infer_program_.get());
+  // argument_.SetMainGraphNotOwned(aargument_.main_graph());
+  auto graph = std::unique_ptr<Graph>(new Graph(argument_.main_program()));
+  argument_.SetMainGraph(graph.release());
+  argument_.main_graph().Set(framework::ir::kParamScopeAttr,
+                             new framework::Scope*(argument_.scope_ptr()));
+
+  argument_.SetIrAnalysisPasses({"infer_clean_graph_pass", "cpu_quantize_pass",
+                                 "cpu_quantize_squash_pass",
+                                 "cpu_quantize_scale_out_pass"});
+  // argument_.SetAnalysisPasses({"ir_graph_build_pass", "ir_analysis_pass",
+  // "ir_params_sync_among_devices_pass"});
+  argument_.SetAnalysisPasses(
+      {"ir_analysis_pass", "ir_params_sync_among_devices_pass"});
   argument_.SetScopeNotOwned(scope_);
+
+  // push the scales to the quantize pass
+  auto cpu_quantize_pass =
+      framework::ir::PassRegistry::Instance().Get("cpu_quantize_pass");
+  cpu_quantize_pass->Set("quant_var_scales", new VarQuantMaxAndScale(scales_));
+
   Analyzer().Run(&argument_);
 
   PADDLE_ENFORCE(argument_.scope_valid());
@@ -348,7 +371,7 @@ bool Quantizer::RunQuantizePasses() {
   ARGUMENT_CHECK_FIELD((&argument_), ir_analyzed_program);
   infer_program_.reset(
       new framework::ProgramDesc(argument_.ir_analyzed_program()));
-  LOG(INFO) << "== optimize end ==";
+  LOG(INFO) << "== optimize 2 end ==";
 
   return true;
 }

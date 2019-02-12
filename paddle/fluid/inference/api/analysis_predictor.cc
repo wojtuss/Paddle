@@ -114,7 +114,8 @@ bool AnalysisPredictor::Quantize() {
     framework::Scope *scope = sub_scope_ ? sub_scope_ : scope_.get();
     // initialize quantizer
     quantizer_.reset(new Quantizer(scope, inference_program_,
-                                   config_.quantizer_config_, predictor_run));
+                                   config_.quantizer_config_, config_,
+                                   argument_, predictor_run));
     // do the quantization
     if (!quantizer_->Quantize()) return false;
   }
