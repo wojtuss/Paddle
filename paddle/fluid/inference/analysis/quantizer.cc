@@ -72,7 +72,7 @@ std::pair<std::vector<int>, float> Histogram(
   // TODO(sfraczek): Try #pragma omp parallel for
   for (int i = 0; i < eigen_tensor.size(); i++) {
     int bin = static_cast<int>(floor((eigen_tensor[i] - min_val) / bin_width));
-    hist[bin] = eigen_tensor[i];
+    ++hist[bin];
   }
   // TODO(sfraczek): Try the below
   // auto bin_blob = (eigen_tensor - min_val) / bin_width
@@ -151,22 +151,20 @@ std::pair<QuantMax, LoDTensor> GetKLScalingFactor(const LoDTensor* var_tensor) {
   std::vector<int> hist;
   float bin_width;
   int starting_iter;
-  int ending_iter;
+  int ending_iter = precision_hist_num_bins - 1;
   if (is_positive) {
     std::tie(hist, bin_width) =
         Histogram(eigen_tensor, min_val, max_val, precision_hist_num_bins);
-    ending_iter = precision_hist_num_bins - 1;
     starting_iter = static_cast<int>(ending_iter * 0.7);
   } else {
     float th = std::max(std::abs(max_val), std::abs(min_val));
     std::tie(hist, bin_width) =
         Histogram(eigen_tensor, -th, th, precision_hist_num_bins);
     starting_iter = 0;
-    ending_iter = precision_hist_num_bins - 1;
     if (std::abs(max_val) > std::abs(min_val)) {
       while (starting_iter < ending_iter) {
         if (hist[starting_iter] == 0) {
-          starting_iter += 1;
+          ++starting_iter;
           continue;
         } else {
           break;
@@ -176,7 +174,7 @@ std::pair<QuantMax, LoDTensor> GetKLScalingFactor(const LoDTensor* var_tensor) {
     } else {
       while (ending_iter > 0) {
         if (hist[ending_iter] == 0) {
-          ending_iter -= 1;
+          --ending_iter;
           continue;
         } else {
           break;
