@@ -21,6 +21,7 @@ namespace ir {
 std::unique_ptr<ir::Graph> CPUQuantizeSquashPass::ApplyImpl(
     std::unique_ptr<ir::Graph> graph) const {
   PADDLE_ENFORCE(graph.get());
+  std::cout << "--- This is cpu quantize squash pass. ---" << std::endl;
 
   // TODO(sfraczek): Squash dequantize->quantize pattern to requantize
 

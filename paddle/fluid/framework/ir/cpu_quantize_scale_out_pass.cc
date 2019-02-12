@@ -21,6 +21,7 @@ namespace ir {
 std::unique_ptr<ir::Graph> CPUQuantizeScaleOutPass::ApplyImpl(
     std::unique_ptr<ir::Graph> graph) const {
   PADDLE_ENFORCE(graph.get());
+  std::cout << "--- This is cpu quantize scale out pass. ---" << std::endl;
 
   // TODO(sfraczek): Fuse conv2d->dequantize pattern to a conv2d op with output
   // scale

@@ -21,6 +21,7 @@ namespace ir {
 std::unique_ptr<ir::Graph> CPUQuantizePass::ApplyImpl(
     std::unique_ptr<ir::Graph> graph) const {
   PADDLE_ENFORCE(graph.get());
+  std::cout << "--- This is cpu quantize pass. ---" << std::endl;
 
   // TODO(sfraczek): insert quantize/dequantize
   // TODO(sfraczek): quantize weights and biases
