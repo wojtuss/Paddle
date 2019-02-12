@@ -252,13 +252,11 @@ std::pair<QuantMax, LoDTensor> GetKLScalingFactor(const LoDTensor* var_tensor) {
 bool Quantizer::RunWarmup() {
   VLOG(3) << "Predictor: run a quantization warmup iteration";
   auto warmup_data = config_->warmup_data();
-
   PADDLE_ENFORCE_NOT_NULL(warmup_data,
                           "Warmup data cannot be NULL in the config.");
 
-  std::vector<PaddleTensor> output_slots;
-
   // Run the inference program
+  std::vector<PaddleTensor> output_slots;
   std::cout << "Running warmup iteration." << std::endl;
   predictor_run_(*warmup_data, &output_slots, config_->warmup_batch_size());
   std::cout << "Done." << std::endl;
@@ -268,7 +266,6 @@ bool Quantizer::RunWarmup() {
 
 bool Quantizer::CalculateScales() {
   using VariableNameMap = std::map<std::string, std::vector<std::string>>;
-  // TODO(sfraczek): Add tensor collection and scale calculation.
   std::map<std::string, std::map<std::string, LoDTensor>> gathered_data;
   for (auto* op : infer_program_->Block(0).AllOps()) {
     if (op->HasAttr("use_quantizer") &&
@@ -319,39 +316,37 @@ void Quantizer::CalculateSingleScale(const std::string& op_type_name,
   }
 }
 
+void Quantizer::PrepareArgument(Argument* arg) {
+  arg->SetUseGPU(false);
+  arg->SetGPUDeviceId(0);
+  arg->SetEnableMemoryOptim(false);
+  arg->SetStaticMemoryOptim(false);
+  arg->SetStaticMemoryOptimForceUpdate(false);
+  arg->SetMainProgramNotOwned(infer_program_.get());
+  auto graph = std::unique_ptr<Graph>(new Graph(arg->main_program()));
+  arg->SetMainGraph(graph.release());
+  arg->SetScopeNotOwned(scope_);
+  arg->main_graph().Set(framework::ir::kParamScopeAttr,
+                        new framework::Scope*(arg->scope_ptr()));
+  arg->SetIrAnalysisPasses({"infer_clean_graph_pass", "cpu_quantize_pass",
+                            "cpu_quantize_squash_pass",
+                            "cpu_quantize_scale_out_pass"});
+  arg->SetAnalysisPasses({"ir_analysis_pass", "memory_optimize_pass",
+                          "ir_params_sync_among_devices_pass",
+                          "ir_graph_to_program_pass"});
+  arg->SetQuantVarScales(scales_);
+}
+
 bool Quantizer::RunQuantizePasses() {
-  Argument argument_;
-  // argument_.SetScope(new framework::Scope);
-  argument_.SetUseGPU(false);
-  argument_.SetGPUDeviceId(0);
-  argument_.SetEnableMemoryOptim(false);
-  argument_.SetStaticMemoryOptim(false);
-  argument_.SetStaticMemoryOptimForceUpdate(false);
-  argument_.SetMainProgramNotOwned(infer_program_.get());
-  auto graph = std::unique_ptr<Graph>(new Graph(argument_.main_program()));
-  argument_.SetMainGraph(graph.release());
-  argument_.SetScopeNotOwned(scope_);
-  argument_.main_graph().Set(framework::ir::kParamScopeAttr,
-                             new framework::Scope*(argument_.scope_ptr()));
-
-  argument_.SetIrAnalysisPasses({"infer_clean_graph_pass", "cpu_quantize_pass",
-                                 "cpu_quantize_squash_pass",
-                                 "cpu_quantize_scale_out_pass"});
-  argument_.SetAnalysisPasses({"ir_analysis_pass", "memory_optimize_pass",
-                               "ir_params_sync_among_devices_pass",
-                               "ir_graph_to_program_pass"});
-
-  argument_.SetQuantVarScales(scales_);
-
-  Analyzer().Run(&argument_);
-
-  PADDLE_ENFORCE(argument_.scope_valid());
+  Argument argument;
+  PrepareArgument(&argument);
+  Analyzer().Run(&argument);
+  PADDLE_ENFORCE(argument.scope_valid());
   VLOG(5) << "to prepare executor";
-  ARGUMENT_CHECK_FIELD((&argument_), ir_analyzed_program);
+  ARGUMENT_CHECK_FIELD((&argument), ir_analyzed_program);
   infer_program_.reset(
-      new framework::ProgramDesc(argument_.ir_analyzed_program()));
+      new framework::ProgramDesc(argument.ir_analyzed_program()));
   LOG(INFO) << "== optimize 2 end ==";
-
   return true;
 }
 

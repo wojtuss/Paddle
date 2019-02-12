@@ -82,6 +82,7 @@ class Quantizer final {
                             const std::string& conn_name,
                             const std::string& var_name,
                             const LoDTensor* var_tensor);
+  void PrepareArgument(Argument* arg);
   bool RunQuantizePasses();
   bool SaveModel();
 
