@@ -328,9 +328,18 @@ void Quantizer::PrepareArgument(Argument* arg) {
   arg->SetScopeNotOwned(scope_);
   arg->main_graph().Set(framework::ir::kParamScopeAttr,
                         new framework::Scope*(arg->scope_ptr()));
-  arg->SetIrAnalysisPasses({"infer_clean_graph_pass", "cpu_quantize_pass",
-                            "cpu_quantize_squash_pass",
-                            "cpu_quantize_scale_out_pass"});
+
+  for (int i = aconfig_.pass_builder()->AllPasses().size() - 1; i >= 0; --i)
+    aconfig_.pass_builder()->DeletePass(i);
+
+  aconfig_.pass_builder()->AppendPass("infer_clean_graph_pass");
+  aconfig_.pass_builder()->AppendPass("cpu_quantize_pass");
+  aconfig_.pass_builder()->AppendPass("cpu_quantize_squash_pass");
+  aconfig_.pass_builder()->AppendPass("cpu_quantize_scale_out_pass");
+  aconfig_.pass_builder()->TurnOnDebug();
+  auto passes = aconfig_.pass_builder()->AllPasses();
+  arg->SetIrAnalysisPasses(passes);
+
   arg->SetAnalysisPasses({"ir_analysis_pass", "memory_optimize_pass",
                           "ir_params_sync_among_devices_pass",
                           "ir_graph_to_program_pass"});

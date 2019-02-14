@@ -118,6 +118,7 @@ bool AnalysisPredictor::Quantize() {
                                    argument_, predictor_run));
     // do the quantization
     if (!quantizer_->Quantize()) return false;
+    executor_->CreateVariables(*inference_program_, 0, false, sub_scope_);
   }
 
   return true;

@@ -15,8 +15,9 @@
 #pragma once
 
 #include <string>
+#include "paddle/fluid/framework/ir/fuse_pass_base.h"
 #include "paddle/fluid/framework/ir/graph.h"
-#include "paddle/fluid/framework/ir/pass.h"
+#include "paddle/fluid/framework/ir/graph_pattern_detector.h"
 
 namespace paddle {
 namespace framework {
@@ -25,12 +26,13 @@ namespace ir {
 /*
  * Quantize weights and biases, insert (de)quantize operators.
  */
-class CPUQuantizePass : public Pass {
+class CPUQuantizePass : public FusePassBase {
  public:
   virtual ~CPUQuantizePass() {}
 
  protected:
   std::unique_ptr<ir::Graph> ApplyImpl(std::unique_ptr<ir::Graph> graph) const;
+  const std::string name_scope_{"quantize"};
 };
 
 }  // namespace ir
