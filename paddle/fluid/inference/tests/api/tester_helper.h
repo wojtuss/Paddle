@@ -79,6 +79,14 @@ void CompareResult(const std::vector<PaddleTensor> &outputs,
     EXPECT_EQ(size, ref_size);
     EXPECT_EQ(out.dtype, ref_out.dtype);
     switch (out.dtype) {
+      case PaddleDType::INT32: {
+        int64_t *pdata = static_cast<int32_t *>(out.data.data());
+        int64_t *pdata_ref = static_cast<int32_t *>(ref_out.data.data());
+        for (size_t j = 0; j < size; ++j) {
+          EXPECT_EQ(pdata_ref[j], pdata[j]);
+        }
+        break;
+      }
       case PaddleDType::INT64: {
         int64_t *pdata = static_cast<int64_t *>(out.data.data());
         int64_t *pdata_ref = static_cast<int64_t *>(ref_out.data.data());

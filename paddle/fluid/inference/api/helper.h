@@ -194,6 +194,9 @@ static std::string DescribeTensor(const PaddleTensor &tensor,
     case PaddleDType::FLOAT32:
       os << "float32";
       break;
+    case PaddleDType::INT32:
+      os << "int32";
+      break;
     case PaddleDType::INT64:
       os << "int64";
       break;

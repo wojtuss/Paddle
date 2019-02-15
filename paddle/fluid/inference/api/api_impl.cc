@@ -196,7 +196,9 @@ bool NativePaddlePredictor::SetFeed(const std::vector<PaddleTensor> &inputs,
     auto &input = feed_tensors_[i];
     framework::DDim ddim = framework::make_ddim(inputs[i].shape);
     void *input_ptr;
-    if (inputs[i].dtype == PaddleDType::INT64) {
+    if (inputs[i].dtype == PaddleDType::INT32) {
+      input_ptr = input.mutable_data<int32_t>(ddim, place_);
+    } else if (inputs[i].dtype == PaddleDType::INT64) {
       input_ptr = input.mutable_data<int64_t>(ddim, place_);
     } else if (inputs[i].dtype == PaddleDType::FLOAT32) {
       input_ptr = input.mutable_data<float>(ddim, place_);
@@ -275,6 +277,9 @@ bool NativePaddlePredictor::GetFetch(std::vector<PaddleTensor> *outputs,
     if (type == framework::DataTypeTrait<float>::DataType) {
       GetFetchOne<float>(fetch, output);
       output->dtype = PaddleDType::FLOAT32;
+    } else if (type == framework::DataTypeTrait<int32_t>::DataType) {
+      GetFetchOne<int32_t>(fetch, output);
+      output->dtype = PaddleDType::INT32;
     } else if (type == framework::DataTypeTrait<int64_t>::DataType) {
       GetFetchOne<int64_t>(fetch, output);
       output->dtype = PaddleDType::INT64;

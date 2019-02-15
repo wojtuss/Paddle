@@ -65,6 +65,7 @@ void BindInferenceApi(py::module *m) {
 void BindPaddleDType(py::module *m) {
   py::enum_<PaddleDType>(*m, "PaddleDType")
       .value("FLOAT32", PaddleDType::FLOAT32)
+      .value("INT32", PaddleDType::INT32)
       .value("INT64", PaddleDType::INT64);
 }
 

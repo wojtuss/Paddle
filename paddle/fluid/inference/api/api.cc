@@ -26,6 +26,8 @@ int PaddleDtypeSize(PaddleDType dtype) {
   switch (dtype) {
     case PaddleDType::FLOAT32:
       return sizeof(float);
+    case PaddleDType::INT32:
+      return sizeof(int32_t);
     case PaddleDType::INT64:
       return sizeof(int64_t);
     default:

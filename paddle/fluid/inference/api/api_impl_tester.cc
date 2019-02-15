@@ -36,7 +36,10 @@ namespace paddle {
 PaddleTensor LodTensorToPaddleTensor(framework::LoDTensor* t) {
   PaddleTensor pt;
 
-  if (t->type() == framework::proto::VarType::INT64) {
+  if (t->type() == framework::proto::VarType::INT32) {
+    pt.data.Reset(t->data<void>(), t->numel() * sizeof(int32_t));
+    pt.dtype = PaddleDType::INT32;
+  } else if (t->type() == framework::proto::VarType::INT64) {
     pt.data.Reset(t->data<void>(), t->numel() * sizeof(int64_t));
     pt.dtype = PaddleDType::INT64;
   } else if (t->type() == framework::proto::VarType::FP32) {
