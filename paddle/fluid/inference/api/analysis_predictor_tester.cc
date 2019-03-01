@@ -248,45 +248,99 @@ TEST(AnalysisPredictor, memory_optim) {
 TEST(Quantizer, expand_quantized_bins) {
   PADDLE_ENFORCE(false, "Test not implemented yet.");
 }
-TEST(Quantizer, histogram) {
-  AnalysisConfig config(FLAGS_dirname);
-  config.EnableQuantizer();
-  config.quantizer_config()->SetWarmupData({0});
-  config.quantizer_config()->SetWarmupBatchSize(1);
 
-  auto _predictor = CreatePaddlePredictor<AnalysisConfig>(config);
-  auto* predictor = static_cast<AnalysisPredictor*>(_predictor.get());
+class QuantizerTest : public testing::Test {
+ public:
+  template <std::size_t SIZE>
+  inline std::pair<std::vector<int>, float> Histogram(
+      std::array<float, SIZE>& values, float min_val, float max_val,
+      int num_bins) {
+    AnalysisConfig config(FLAGS_dirname);
 
-  framework::LoDTensor var_tensor;
-  var_tensor.Resize({5});
+    auto _predictor = CreatePaddlePredictor<AnalysisConfig>(config);
+    auto* predictor = static_cast<AnalysisPredictor*>(_predictor.get());
+
+    auto qconfig = std::make_shared<QuantizerConfig>();
+
+    AnalysisPredictor::Quantizer quantizer{*predictor, qconfig};
+
+    framework::LoDTensor var_tensor;
+    var_tensor.Resize({values.size()});
+    std::copy(values.begin(), values.end(),
+              var_tensor.mutable_data<float>(platform::CPUPlace()));
+
+    return quantizer.Histogram(&var_tensor, min_val, max_val, num_bins);
+  }
+};
+
+TEST_F(QuantizerTest, histogram_throw) {
   std::array<float, 5> values{0.5e6, 1e3, 0, 0.5e-3, 1e-4};
-  std::copy(values.begin(), values.end(),
-            var_tensor.mutable_data<float>(platform::CPUPlace()));
+  float min_val = *std::min_element(values.begin(), values.end());
+  float max_val = *std::max_element(values.begin(), values.end());
+
+  ASSERT_THROW(Histogram(values, max_val, min_val, 3), platform::EnforceNotMet);
+}
+
+TEST_F(QuantizerTest, histogram_non_negative_5_to_3) {
+  // all non-negative values
+  std::array<float, 5> values{0.5e6, 1e3, 0, 0.5e-3, 1e-4};
   float min_val = *std::min_element(values.begin(), values.end());
   float max_val = *std::max_element(values.begin(), values.end());
 
   std::vector<int> histogram;
   float bin_width;
 
-  std::tie(histogram, bin_width) =
-      predictor->quantizer_->Histogram(&var_tensor, min_val, max_val, 3);
+  std::tie(histogram, bin_width) = Histogram(values, min_val, max_val, 3);
 
-  ASSERT_THROW(
-      predictor->quantizer_->Histogram(&var_tensor, max_val, min_val, 3),
-      platform::EnforceNotMet);
-
-  float expected_bin_width = (max_val - min_val) / 3;
-  ASSERT_EQ(bin_width, expected_bin_width)
+  ASSERT_EQ(bin_width, (max_val - min_val) / 3)
       << "Improperly calculated bin_width.";
 
   ASSERT_THAT(histogram, testing::ElementsAre(4, 0, 1))
       << "Improperly calculated histogram.";
 }
 
-TEST(Quantizer, kl_scaling_factor) { FAIL() << "Test not implemented yet."; }
+TEST_F(QuantizerTest, histogram_5_to_3) {
+  // positive and negative values
+  std::array<float, 5> values{-1e2, 1e2, -1e1, 1e1, 1e-4};
+  float min_val = *std::min_element(values.begin(), values.end());
+  float max_val = *std::max_element(values.begin(), values.end());
 
-TEST(Quantizer, max_scaling_factor) { FAIL() << "test not implemented yet."; }
+  std::vector<int> histogram;
+  float bin_width;
 
-TEST(Quantizer, safe_entropy) { FAIL() << "test not implemented yet."; }
+  std::tie(histogram, bin_width) = Histogram(values, min_val, max_val, 3);
+
+  ASSERT_EQ(bin_width, (max_val - min_val) / 3)
+      << "Improperly calculated bin_width.";
+
+  ASSERT_THAT(histogram, testing::ElementsAre(2, 2, 1))
+      << "Improperly calculated histogram.";
+}
+
+TEST_F(QuantizerTest, histogram_empty) {
+  // empty array
+  std::array<float, 5> values{0.5e6, 1e3, 0, 0.5e-3, 1e-4};
+  float min_val = *std::min_element(values.begin(), values.end());
+  float max_val = *std::max_element(values.begin(), values.end());
+
+  ASSERT_THROW(Histogram(values, min_val, max_val, 0), platform::EnforceNotMet);
+}
+
+TEST_F(QuantizerTest, histogram_zero_bins) {
+  // empty array
+  std::array<float, 0> values;
+
+  ASSERT_THROW(Histogram(values, -1, 1, 1), platform::EnforceNotMet);
+}
+
+TEST_F(QuantizerTest, kl_scaling_factor) {
+  FAIL() << "Test not implemented yet.";
+}
+
+TEST_F(QuantizerTest, max_scaling_factor) {
+  FAIL() << "test not implemented yet.";
+}
+
+TEST_F(QuantizerTest, safe_entropy) { FAIL() << "test not implemented yet."; }
 
 }  // namespace paddle

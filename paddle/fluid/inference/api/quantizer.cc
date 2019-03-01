@@ -251,15 +251,18 @@ AnalysisPredictor::Quantizer::GetMaxScalingFactor(
 
 std::pair<std::vector<int>, float> AnalysisPredictor::Quantizer::Histogram(
     const framework::LoDTensor* var_tensor, float min_val, float max_val,
-    int num_bins) const {
-  ConstEigenVectorArrayMap eigen_tensor{var_tensor->data<float>(),
-                                        var_tensor->numel(), 1};
+    size_t num_bins) const {
+  PADDLE_ENFORCE_GT(num_bins, 0,
+                    "Quantizer: To calculate Histogram, num_bins (" +
+                        std::to_string(num_bins) + ") must be positive.");
   PADDLE_ENFORCE(max_val > min_val,
                  "Quantizer: To calculate Histogram, max_val (" +
                      std::to_string(max_val) +
                      ") must be greater "
                      "than min_val (" +
                      std::to_string(min_val) + ").");
+  ConstEigenVectorArrayMap eigen_tensor{var_tensor->data<float>(),
+                                        var_tensor->numel(), 1};
   auto bin_width = (max_val - min_val) / num_bins;
   std::vector<int> hist(num_bins);
 
