@@ -70,10 +70,15 @@ std::pair<std::vector<int>, float> Histogram(
   auto bin_width = (max_val - min_val) / num_bins;
   std::vector<int> hist(num_bins);
 
+  // TODO(sfraczek): Try #pragma omp parallel for
   for (int i = 0; i < eigen_tensor.size(); i++) {
     int bin = static_cast<int>(floor((eigen_tensor[i] - min_val) / bin_width));
     ++hist[bin];
   }
+  // TODO(sfraczek): Try the below
+  // auto bin_blob = (eigen_tensor - min_val) / bin_width
+  // for int (i = 0; i < bin_blob.size(); i++)
+  //   hist[bin_blob[i]]=eigen_tensor[i];
 
   return std::make_pair(std::move(hist), std::move(bin_width));
 }
@@ -315,6 +320,10 @@ void AnalysisPredictor::Quantizer::PrepareArgument() const {
   auto& arg = predictor_.argument_;
   if (!arg.scope_valid()) arg.SetScope(new framework::Scope);
   arg.SetMainProgramNotOwned(predictor_.inference_program_.get());
+  auto graph = std::unique_ptr<Graph>(new Graph(arg.main_program()));
+  arg.SetMainGraph(graph.release());
+  arg.main_graph().Set(framework::ir::kParamScopeAttr,
+                       new framework::Scope*(arg.scope_ptr()));
 
   auto* builder = predictor_.config_.pass_builder();
   builder->AnalysisPasses().clear();
