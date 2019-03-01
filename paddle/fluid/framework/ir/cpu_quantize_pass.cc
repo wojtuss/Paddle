@@ -34,13 +34,11 @@ void UnlinkNodes(ir::Node* a, ir::Node* b) {
                   b->inputs.end());
 }
 
-template <typename In, typename Out>
-void QuantizeLoDTensor(const LoDTensor& src, LoDTensor* dst, In scale) {
-  auto* const src_p = src.data<In>();
-  auto* dst_p = dst->mutable_data<Out>(platform::CPUPlace());
-  PADDLE_ENFORCE_EQ(src.numel(), dst->numel());
-  for (int i = 0; i < src.numel(); ++i) {
-    dst_p[i] = static_cast<Out>(std::round(src_p[i] * scale));
+template <typename T>
+void ScaleLoDTensor(LoDTensor* src, float scale) {
+  auto* src_p = src->data<T>();
+  for (int i = 0; i < src->numel(); ++i) {
+    src_p[i] = static_cast<T>(std::round(src_p[i] * scale));
   }
 }
 
@@ -53,6 +51,108 @@ boost::optional<T> HasAttribute(const Node& op, const std::string& attr) {
 }
 
 }  // namespace
+
+template <typename OutT>
+void CPUQuantizePass::QuantizeInput(Graph* g, Node* op, Node* input,
+                                    std::string input_name, std::string prefix,
+                                    float scale, bool is_negative) const {
+  // Create and initialize quantize output variable
+  VarDesc quantize_out_desc(patterns::PDNodeName(prefix + "quantize", "out"));
+  quantize_out_desc.SetDataType(framework::ToDataType(typeid(OutT)));
+  quantize_out_desc.SetShape(input->Var()->GetShape());
+  auto* quantize_out_node = g->CreateVarNode(&quantize_out_desc);
+  auto* quantize_out_tensor =
+      param_scope()->Var(quantize_out_node->Name())->GetMutable<LoDTensor>();
+  std::fill_n(quantize_out_tensor->mutable_data<OutT>(platform::CPUPlace()),
+              quantize_out_tensor->numel(), 0);
+
+  // create a quantize op node
+  OpDesc q_desc;
+  q_desc.SetType("quantize");
+  q_desc.SetInput("Input", std::vector<std::string>({input->Name()}));
+  q_desc.SetOutput("Output",
+                   std::vector<std::string>({quantize_out_node->Name()}));
+  q_desc.SetAttr("Scale", scale);
+  q_desc.SetAttr("is_negative_input", is_negative);
+  auto quantize_op = g->CreateOpNode(&q_desc);  // OpDesc will be copied.
+
+  // update op's input
+  op->Op()->SetInput(input_name,
+                     std::vector<std::string>({quantize_out_node->Name()}));
+
+  // link quantize op
+  UnlinkNodes(input, op);
+  IR_NODE_LINK_TO(input, quantize_op);
+  IR_NODE_LINK_TO(quantize_op, quantize_out_node);
+  IR_NODE_LINK_TO(quantize_out_node, op);
+}
+
+template <typename InT>
+void CPUQuantizePass::DequantizeOutput(Graph* g, Node* op, Node* output,
+                                       std::string output_name,
+                                       std::string prefix, float scale) const {
+  // Create and initialize dequantize input variable
+  VarDesc dequantize_in_desc(patterns::PDNodeName(prefix + "dequantize", "in"));
+  // dequantize_in_desc.SetDataType(proto::VarType::INT32);
+  dequantize_in_desc.SetDataType(framework::ToDataType(typeid(InT)));
+  dequantize_in_desc.SetShape(output->Var()->GetShape());
+  auto* dequantize_in_node = g->CreateVarNode(&dequantize_in_desc);
+  auto* dequantize_in_tensor =
+      param_scope()->Var(dequantize_in_node->Name())->GetMutable<LoDTensor>();
+  std::fill_n(dequantize_in_tensor->mutable_data<InT>(platform::CPUPlace()),
+              dequantize_in_tensor->numel(), 0);
+
+  // create a dequantize op node for output.
+  OpDesc deq_desc;
+  deq_desc.SetType("dequantize");
+  deq_desc.SetInput("Input",
+                    std::vector<std::string>({dequantize_in_node->Name()}));
+  deq_desc.SetOutput("Output", std::vector<std::string>({output->Name()}));
+  deq_desc.SetAttr("Scale", scale);
+  auto dequantize_op = g->CreateOpNode(&deq_desc);  // OpDesc will be copied.
+
+  // update op's output
+  op->Op()->SetOutput(output_name,
+                      std::vector<std::string>({dequantize_in_node->Name()}));
+
+  // link dequantize op
+  UnlinkNodes(op, output);
+  IR_NODE_LINK_TO(op, dequantize_in_node);
+  IR_NODE_LINK_TO(dequantize_in_node, dequantize_op);
+  IR_NODE_LINK_TO(dequantize_op, output);
+}
+
+void CPUQuantizePass::QuantizeResidualConn(
+    const GraphPatternDetector::subgraph_t& subgraph, Graph* g,
+    patterns::Conv conv_pattern, Node* conv_op, std::string prefix,
+    PDPattern* base_pattern) const {
+  GET_IR_NODE_FROM_SUBGRAPH(conv_residual_data, conv_residual_data,
+                            conv_pattern);
+
+  // Create and initialize quantize output variable
+  VarDesc quantize_res_out_desc(
+      patterns::PDNodeName(prefix + "q", "quantize_res_out"));
+  quantize_res_out_desc.SetDataType(proto::VarType::INT32);
+  auto* quantize_res_out_node = g->CreateVarNode(&quantize_res_out_desc);
+
+  OpDesc q_res_conn_desc;
+  q_res_conn_desc.SetType("quantize");
+  q_res_conn_desc.SetInput(
+      "Input", std::vector<std::string>({conv_residual_data->Name()}));
+  q_res_conn_desc.SetOutput(
+      "Output", std::vector<std::string>({quantize_res_out_node->Name()}));
+  q_res_conn_desc.SetAttr("Scale", 1.0f);
+  q_res_conn_desc.SetAttr("is_negative_input", true);
+  auto quantize_op_res_conn = g->CreateOpNode(&q_res_conn_desc);
+
+  conv_op->Op()->SetInput("ResidualData", std::vector<std::string>(
+                                              {quantize_res_out_node->Name()}));
+
+  UnlinkNodes(conv_residual_data, conv_op);
+  IR_NODE_LINK_TO(conv_residual_data, quantize_op_res_conn);
+  IR_NODE_LINK_TO(quantize_op_res_conn, quantize_res_out_node);
+  IR_NODE_LINK_TO(quantize_res_out_node, conv_op);
+}
 
 void CPUQuantizePass::QuantizeInputOutput(
     const GraphPatternDetector::subgraph_t& subgraph, Graph* g,
@@ -197,33 +297,21 @@ void CPUQuantizePass::QuantizePoolInputOutput(
   IR_NODE_LINK_TO(dequantize_op, pool_output);
 }
 
+void CPUQuantizePass::ScaleInput(Node* input, float scale) const {
+  auto* input_tensor =
+      param_scope()->Var(input->Name())->GetMutable<LoDTensor>();
+  ScaleLoDTensor<float>(input_tensor, scale);
+}
+
 void CPUQuantizePass::QuantizeWeights(
     const GraphPatternDetector::subgraph_t& subgraph, Graph* g,
     patterns::Conv conv_pattern, Node* conv_op, std::string prefix,
     std::pair<QuantMax, LoDTensor> conv_filter_scales) const {
   GET_IR_NODE_FROM_SUBGRAPH(conv_filter, conv_filter, conv_pattern);
-  // Create and initialize weights variable
-  VarDesc weights_desc(patterns::PDNodeName(prefix + "q_conv", "weights"));
-  weights_desc.SetDataType(proto::VarType::FP32);
-  weights_desc.SetShape(conv_filter->Var()->GetShape());
-  weights_desc.SetPersistable(true);
-  auto* weights_node = g->CreateVarNode(&weights_desc);
-  auto* weights_tensor =
-      param_scope()->Var(weights_node->Name())->GetMutable<LoDTensor>();
-  auto conv_filter_tensor =
-      param_scope()->Var(conv_filter->Name())->Get<LoDTensor>();
-  weights_tensor->Resize(conv_filter_tensor.dims());
+  auto* conv_filter_tensor =
+      param_scope()->Var(conv_filter->Name())->GetMutable<LoDTensor>();
   float scale = conv_filter_scales.second.data<float>()[0];
-  QuantizeLoDTensor<float, float>(conv_filter_tensor, weights_tensor, scale);
-
-  // update conv's inputs
-  conv_op->Op()->SetInput("Filter",
-                          std::vector<std::string>({weights_node->Name()}));
-
-  // update conv op links
-  UnlinkNodes(conv_filter, conv_op);
-  IR_NODE_LINK_TO(weights_node, conv_op);
-  GraphSafeRemoveNodes(g, {conv_filter});
+  ScaleLoDTensor<float>(conv_filter_tensor, scale);
 }
 
 void CPUQuantizePass::QuantizeBias(
@@ -232,61 +320,11 @@ void CPUQuantizePass::QuantizeBias(
     std::pair<QuantMax, LoDTensor> conv_filter_scales,
     std::pair<QuantMax, LoDTensor> conv_input_scales) const {
   GET_IR_NODE_FROM_SUBGRAPH(conv_bias, conv_bias, conv_pattern);
-  // Create and initialize bias variable
-  VarDesc bias_desc(patterns::PDNodeName(prefix + "q_conv", "bias"));
-  bias_desc.SetDataType(proto::VarType::FP32);
-  bias_desc.SetShape(conv_bias->Var()->GetShape());
-  bias_desc.SetPersistable(true);
-  auto* bias_node = g->CreateVarNode(&bias_desc);
-  auto* bias_tensor =
-      param_scope()->Var(bias_node->Name())->GetMutable<LoDTensor>();
-  auto conv_bias_tensor =
-      param_scope()->Var(conv_bias->Name())->Get<LoDTensor>();
-  bias_tensor->Resize(conv_bias_tensor.dims());
+  auto* conv_bias_tensor =
+      param_scope()->Var(conv_bias->Name())->GetMutable<LoDTensor>();
   float scale = conv_filter_scales.second.data<float>()[0] *
                 conv_input_scales.second.data<float>()[0];
-  QuantizeLoDTensor<float, float>(conv_bias_tensor, bias_tensor, scale);
-
-  // update conv's inputs
-  conv_op->Op()->SetInput("Bias",
-                          std::vector<std::string>({bias_node->Name()}));
-
-  // update conv op links
-  UnlinkNodes(conv_bias, conv_op);
-  IR_NODE_LINK_TO(bias_node, conv_op);
-  GraphSafeRemoveNodes(g, {conv_bias});
-}
-
-void CPUQuantizePass::QuantizeResidualConn(
-    const GraphPatternDetector::subgraph_t& subgraph, Graph* g,
-    patterns::Conv conv_pattern, Node* conv_op, std::string prefix,
-    PDPattern* base_pattern) const {
-  GET_IR_NODE_FROM_SUBGRAPH(conv_residual_data, conv_residual_data,
-                            conv_pattern);
-
-  // Create and initialize quantize output variable
-  VarDesc quantize_res_out_desc(
-      patterns::PDNodeName(prefix + "q", "quantize_res_out"));
-  quantize_res_out_desc.SetDataType(proto::VarType::INT32);
-  auto* quantize_res_out_node = g->CreateVarNode(&quantize_res_out_desc);
-
-  OpDesc q_res_conn_desc;
-  q_res_conn_desc.SetType("quantize");
-  q_res_conn_desc.SetInput(
-      "Input", std::vector<std::string>({conv_residual_data->Name()}));
-  q_res_conn_desc.SetOutput(
-      "Output", std::vector<std::string>({quantize_res_out_node->Name()}));
-  q_res_conn_desc.SetAttr("Scale", 1.0f);
-  q_res_conn_desc.SetAttr("is_negative_input", true);
-  auto quantize_op_res_conn = g->CreateOpNode(&q_res_conn_desc);
-
-  conv_op->Op()->SetInput("ResidualData", std::vector<std::string>(
-                                              {quantize_res_out_node->Name()}));
-
-  UnlinkNodes(conv_residual_data, conv_op);
-  IR_NODE_LINK_TO(conv_residual_data, quantize_op_res_conn);
-  IR_NODE_LINK_TO(quantize_op_res_conn, quantize_res_out_node);
-  IR_NODE_LINK_TO(quantize_res_out_node, conv_op);
+  ScaleLoDTensor<float>(conv_bias_tensor, scale);
 }
 
 void CPUQuantizePass::QuantizeConv(Graph* graph, bool with_bias,
@@ -322,22 +360,35 @@ void CPUQuantizePass::QuantizeConv(Graph* graph, bool with_bias,
     GET_IR_NODE_FROM_SUBGRAPH(conv_filter, conv_filter, conv_pattern);
     GET_IR_NODE_FROM_SUBGRAPH(conv_input, conv_input, conv_pattern);
     GET_IR_NODE_FROM_SUBGRAPH(conv_output, conv_output, conv_pattern);
-    auto conv_filter_scales = scales[conv_filter->Name()];
-    auto conv_output_scales = scales[conv_output->Name()];
-    auto conv_input_scales = scales[conv_input->Name()];
-    // create a quantize op node for input.
-    QuantizeInputOutput(subgraph, g, conv_pattern, conv_op, prefix,
-                        conv_input_scales, conv_output_scales);
+    auto conv_input_scale = scales[conv_input->Name()].second.data<float>()[0];
+    bool is_input_negative =
+        scales[conv_input->Name()].first == QuantMax::S8_MAX;
+    auto conv_filter_scale =
+        scales[conv_filter->Name()].second.data<float>()[0];
+    auto conv_output_scale = conv_input_scale * conv_filter_scale;
 
-    QuantizeWeights(subgraph, g, conv_pattern, conv_op, prefix,
-                    conv_filter_scales);
+    QuantizeInput<int8_t>(g, conv_op, conv_input, "Input", prefix,
+                          conv_input_scale, is_input_negative);
+    DequantizeOutput<int32_t>(g, conv_op, conv_output, "Output", prefix,
+                              conv_output_scale);
 
-    if (with_bias)
-      QuantizeBias(subgraph, g, conv_pattern, conv_op, prefix,
-                   conv_filter_scales, conv_input_scales);
+    ScaleInput(conv_filter, conv_filter_scale);
 
-    if (with_res_conn)
-      QuantizeResidualConn(subgraph, g, conv_pattern, conv_op, prefix, pattern);
+    if (with_bias) {
+      GET_IR_NODE_FROM_SUBGRAPH(conv_bias, conv_bias, conv_pattern);
+      ScaleInput(conv_bias, conv_output_scale);
+    }
+
+    if (with_res_conn) {
+      GET_IR_NODE_FROM_SUBGRAPH(conv_residual_data, conv_residual_data,
+                                conv_pattern);
+      auto conv_res_conn_scale =
+          scales[conv_residual_data->Name()].second.data<float>()[0];
+      bool is_res_conn_negative =
+          scales[conv_residual_data->Name()].first == QuantMax::S8_MAX;
+      QuantizeInput<int32_t>(g, conv_op, conv_residual_data, "ResidualData",
+                             prefix, conv_res_conn_scale, is_res_conn_negative);
+    }
 
     ++quantize_conv_count;
   };
