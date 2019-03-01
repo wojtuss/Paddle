@@ -126,6 +126,12 @@ class AnalysisPredictor : public PaddlePredictor {
   FRIEND_TEST(AnalysisPredictor, analysis_off);
   FRIEND_TEST(AnalysisPredictor, analysis_on);
   FRIEND_TEST(AnalysisPredictor, with_gpu);
+
+  FRIEND_TEST(Quantizer, expand_quantized_bins);
+  FRIEND_TEST(Quantizer, histogram);
+  FRIEND_TEST(Quantizer, kl_scaling_factor);
+  FRIEND_TEST(Quantizer, max_scaling_factor);
+  FRIEND_TEST(Quantizer, safe_entropy);
 #endif
 
  private:

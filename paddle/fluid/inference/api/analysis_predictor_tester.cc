@@ -16,7 +16,9 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 #include <thread>  // NOLINT
+#include "gmock/gmock.h"
 #include "paddle/fluid/framework/ir/pass.h"
+#include "paddle/fluid/framework/tensor.h"
 #include "paddle/fluid/inference/api/helper.h"
 #include "paddle/fluid/inference/api/paddle_inference_api.h"
 #include "paddle/fluid/inference/tests/api/tester_helper.h"
@@ -244,22 +246,47 @@ TEST(AnalysisPredictor, memory_optim) {
 }
 
 TEST(Quantizer, expand_quantized_bins) {
-  PADDLE_ENFORCE(false, "Test not implemented yet.")
+  PADDLE_ENFORCE(false, "Test not implemented yet.");
 }
 TEST(Quantizer, histogram) {
-  PADDLE_ENFORCE(false, "Test not implemented yet.")
+  AnalysisConfig config(FLAGS_dirname);
+  config.EnableQuantizer();
+  config.quantizer_config()->SetWarmupData({0});
+  config.quantizer_config()->SetWarmupBatchSize(1);
+
+  auto _predictor = CreatePaddlePredictor<AnalysisConfig>(config);
+  auto* predictor = static_cast<AnalysisPredictor*>(_predictor.get());
+
+  framework::LoDTensor var_tensor;
+  var_tensor.Resize({5});
+  std::array<float, 5> values{0.5e6, 1e3, 0, 0.5e-3, 1e-4};
+  std::copy(values.begin(), values.end(),
+            var_tensor.mutable_data<float>(platform::CPUPlace()));
+  float min_val = *std::min_element(values.begin(), values.end());
+  float max_val = *std::max_element(values.begin(), values.end());
+
+  std::vector<int> histogram;
+  float bin_width;
+
+  std::tie(histogram, bin_width) =
+      predictor->quantizer_->Histogram(&var_tensor, min_val, max_val, 3);
+
+  ASSERT_THROW(
+      predictor->quantizer_->Histogram(&var_tensor, max_val, min_val, 3),
+      platform::EnforceNotMet);
+
+  float expected_bin_width = (max_val - min_val) / 3;
+  ASSERT_EQ(bin_width, expected_bin_width)
+      << "Improperly calculated bin_width.";
+
+  ASSERT_THAT(histogram, testing::ElementsAre(4, 0, 1))
+      << "Improperly calculated histogram.";
 }
 
-TEST(Quantizer, kl_scaling_factor) {
-  PADDLE_ENFORCE(false, "Test not implemented yet.")
-}
+TEST(Quantizer, kl_scaling_factor) { FAIL() << "Test not implemented yet."; }
 
-TEST(Quantizer, max_scaling_factor) {
-  PADDLE_ENFORCE(false, "Test not implemented yet.")
-}
+TEST(Quantizer, max_scaling_factor) { FAIL() << "test not implemented yet."; }
 
-TEST(Quantizer, safe_entropy) {
-  PADDLE_ENFORCE(false, "Test not implemented yet.")
-}
+TEST(Quantizer, safe_entropy) { FAIL() << "test not implemented yet."; }
 
 }  // namespace paddle
