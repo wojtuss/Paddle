@@ -175,6 +175,14 @@ class AnalysisPredictor::Quantizer {
   // Execute full quantization procedure.
   bool Quantize();
 
+#if PADDLE_WITH_TESTING
+  FRIEND_TEST(Quantizer, expand_quantized_bins);
+  FRIEND_TEST(Quantizer, histogram);
+  FRIEND_TEST(Quantizer, kl_scaling_factor);
+  FRIEND_TEST(Quantizer, max_scaling_factor);
+  FRIEND_TEST(Quantizer, safe_entropy);
+#endif
+
  private:
   // Run single warmup iteration
   bool RunWarmup() const;
@@ -188,6 +196,25 @@ class AnalysisPredictor::Quantizer {
   void PrepareArgument() const;
   bool RunQuantizePasses() const;
   bool SaveModel() const;
+
+  std::vector<int> ExpandQuantizedBins(std::vector<int> quantized_bins,
+                                       std::vector<int> reference_bins) const;
+
+  // Using the KL-divergence method get the most precise scaling factor.
+  std::pair<QuantMax, framework::LoDTensor> GetKLScalingFactor(
+      const framework::LoDTensor *var_tensor) const;
+
+  std::pair<QuantMax, framework::LoDTensor> GetMaxScalingFactor(
+      const framework::LoDTensor *var_tensor) const;
+
+  // Returns histogram and bin width
+  std::pair<std::vector<int>, float> Histogram(
+      const framework::LoDTensor *var_tensor, float min_val, float max_val,
+      int num_bins = 2048) const;
+
+  // Calculate the entropy.
+  float SafeEntropy(std::vector<int> reference_distr_P, int P_sum,
+                    std::vector<int> candidate_distr_Q, int Q_sum) const;
 
  private:
   AnalysisPredictor &predictor_;

@@ -243,4 +243,23 @@ TEST(AnalysisPredictor, memory_optim) {
   inference::CompareResult(output, output1);
 }
 
+TEST(Quantizer, expand_quantized_bins) {
+  PADDLE_ENFORCE(false, "Test not implemented yet.")
+}
+TEST(Quantizer, histogram) {
+  PADDLE_ENFORCE(false, "Test not implemented yet.")
+}
+
+TEST(Quantizer, kl_scaling_factor) {
+  PADDLE_ENFORCE(false, "Test not implemented yet.")
+}
+
+TEST(Quantizer, max_scaling_factor) {
+  PADDLE_ENFORCE(false, "Test not implemented yet.")
+}
+
+TEST(Quantizer, safe_entropy) {
+  PADDLE_ENFORCE(false, "Test not implemented yet.")
+}
+
 }  // namespace paddle
