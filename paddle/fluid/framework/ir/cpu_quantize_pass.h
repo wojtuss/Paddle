@@ -19,6 +19,7 @@
 #include "paddle/fluid/framework/ir/fuse_pass_base.h"
 #include "paddle/fluid/framework/ir/graph.h"
 #include "paddle/fluid/framework/ir/graph_pattern_detector.h"
+#include "paddle/fluid/inference/api/paddle_quantizer_config.h"  // for QuantMax
 
 namespace paddle {
 namespace framework {
@@ -37,24 +38,34 @@ class CPUQuantizePass : public FusePassBase {
 
   void QuantizeConv(Graph* graph, bool with_bias = false,
                     bool with_res_conn = false) const;
+
   void QuantizePool(Graph* graph) const;
 
-  void QuantizeInputOutput(const GraphPatternDetector::subgraph_t& subgraph,
-                           Graph* g, patterns::Conv conv_pattern, Node* conv_op,
-                           std::string prefix) const;
+  void QuantizeInputOutput(
+      const GraphPatternDetector::subgraph_t& subgraph, Graph* g,
+      patterns::Conv conv_pattern, Node* conv_op, std::string prefix,
+      std::pair<QuantMax, LoDTensor> conv_input_scales,
+      std::pair<QuantMax, LoDTensor> conv_output_scales) const;
+
   void QuantizePoolInputOutput(const GraphPatternDetector::subgraph_t& subgraph,
                                Graph* g, patterns::Pool pool_pattern,
                                Node* pool_op) const;
+
   void QuantizeResidualConn(const GraphPatternDetector::subgraph_t& subgraph,
                             Graph* g, patterns::Conv conv_pattern,
                             Node* conv_op, std::string prefix,
                             PDPattern* base_pattern) const;
+
   void QuantizeWeights(const GraphPatternDetector::subgraph_t& subgraph,
                        Graph* g, patterns::Conv conv_pattern, Node* conv_op,
-                       std::string prefix) const;
+                       std::string prefix,
+                       std::pair<QuantMax, LoDTensor> conv_filter_scales) const;
+
   void QuantizeBias(const GraphPatternDetector::subgraph_t& subgraph, Graph* g,
                     patterns::Conv conv_pattern, Node* conv_op,
-                    std::string prefix) const;
+                    std::string prefix,
+                    std::pair<QuantMax, LoDTensor> conv_filter_scales,
+                    std::pair<QuantMax, LoDTensor> conv_input_scales) const;
 
   const std::string name_scope_{"quantize"};
 };

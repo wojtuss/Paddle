@@ -22,6 +22,9 @@ namespace paddle {
 namespace framework {
 namespace ir {
 
+using VarQuantMaxAndScale =
+    std::map<std::string, std::pair<QuantMax, LoDTensor>>;
+
 namespace {
 
 void UnlinkNodes(ir::Node* a, ir::Node* b) {
@@ -31,11 +34,15 @@ void UnlinkNodes(ir::Node* a, ir::Node* b) {
                   b->inputs.end());
 }
 
-void QuantizeLoDTensor(const LoDTensor& src, LoDTensor* dst) {
-  // Quantize
+template <typename In, typename Out>
+void QuantizeLoDTensor(const LoDTensor& src, LoDTensor* dst, In scale) {
+  auto* const src_p = src.data<In>();
+  auto* dst_p = dst->mutable_data<Out>(platform::CPUPlace());
+  PADDLE_ENFORCE_EQ(src.numel(), dst->numel());
+  for (int i = 0; i < src.numel(); ++i) {
+    dst_p[i] = static_cast<Out>(std::round(src_p[i] * scale));
+  }
 }
-
-}  // namespace
 
 template <typename T>
 boost::optional<T> HasAttribute(const Node& op, const std::string& attr) {
@@ -45,9 +52,13 @@ boost::optional<T> HasAttribute(const Node& op, const std::string& attr) {
     return boost::none;
 }
 
+}  // namespace
+
 void CPUQuantizePass::QuantizeInputOutput(
     const GraphPatternDetector::subgraph_t& subgraph, Graph* g,
-    patterns::Conv conv_pattern, Node* conv_op, std::string prefix) const {
+    patterns::Conv conv_pattern, Node* conv_op, std::string prefix,
+    std::pair<QuantMax, LoDTensor> conv_input_scales,
+    std::pair<QuantMax, LoDTensor> conv_output_scales) const {
   GET_IR_NODE_FROM_SUBGRAPH(conv_input, conv_input, conv_pattern);
   GET_IR_NODE_FROM_SUBGRAPH(conv_output, conv_output, conv_pattern);
   // Create and initialize quantize output variable
@@ -81,13 +92,9 @@ void CPUQuantizePass::QuantizeInputOutput(
   q_desc.SetOutput("Output",
                    std::vector<std::string>({quantize_out_node->Name()}));
 
-  using VarQuantMaxAndScale =
-      std::map<std::string, std::pair<QuantMax, framework::LoDTensor>>;
-  auto scales = Get<VarQuantMaxAndScale>("quant_var_scales");
-  auto input_qmax_and_scale = scales[conv_input->Name()];
-  q_desc.SetAttr("Scale", input_qmax_and_scale.second.data<float>()[0]);
+  q_desc.SetAttr("Scale", conv_input_scales.second.data<float>()[0]);
   q_desc.SetAttr("is_negative_input",
-                 input_qmax_and_scale.first == QuantMax::S8_MAX);
+                 conv_input_scales.first == QuantMax::S8_MAX);
   auto quantize_op = g->CreateOpNode(&q_desc);  // OpDesc will be copied.
 
   // create a dequantize op node for output.
@@ -96,7 +103,7 @@ void CPUQuantizePass::QuantizeInputOutput(
   deq_desc.SetInput("Input",
                     std::vector<std::string>({dequantize_in_node->Name()}));
   deq_desc.SetOutput("Output", std::vector<std::string>({conv_output->Name()}));
-  deq_desc.SetAttr("Scale", input_qmax_and_scale.second.data<float>()[0]);
+  deq_desc.SetAttr("Scale", conv_output_scales.second.data<float>()[0]);
   auto dequantize_op = g->CreateOpNode(&deq_desc);  // OpDesc will be copied.
 
   // update conv's inputs and outputs
@@ -192,7 +199,8 @@ void CPUQuantizePass::QuantizePoolInputOutput(
 
 void CPUQuantizePass::QuantizeWeights(
     const GraphPatternDetector::subgraph_t& subgraph, Graph* g,
-    patterns::Conv conv_pattern, Node* conv_op, std::string prefix) const {
+    patterns::Conv conv_pattern, Node* conv_op, std::string prefix,
+    std::pair<QuantMax, LoDTensor> conv_filter_scales) const {
   GET_IR_NODE_FROM_SUBGRAPH(conv_filter, conv_filter, conv_pattern);
   // Create and initialize weights variable
   VarDesc weights_desc(patterns::PDNodeName(prefix + "q_conv", "weights"));
@@ -205,8 +213,8 @@ void CPUQuantizePass::QuantizeWeights(
   auto conv_filter_tensor =
       param_scope()->Var(conv_filter->Name())->Get<LoDTensor>();
   weights_tensor->Resize(conv_filter_tensor.dims());
-  std::fill_n(weights_tensor->mutable_data<float>(platform::CPUPlace()),
-              weights_tensor->numel(), 0);
+  float scale = conv_filter_scales.second.data<float>()[0];
+  QuantizeLoDTensor<float, float>(conv_filter_tensor, weights_tensor, scale);
 
   // update conv's inputs
   conv_op->Op()->SetInput("Filter",
@@ -220,7 +228,9 @@ void CPUQuantizePass::QuantizeWeights(
 
 void CPUQuantizePass::QuantizeBias(
     const GraphPatternDetector::subgraph_t& subgraph, Graph* g,
-    patterns::Conv conv_pattern, Node* conv_op, std::string prefix) const {
+    patterns::Conv conv_pattern, Node* conv_op, std::string prefix,
+    std::pair<QuantMax, LoDTensor> conv_filter_scales,
+    std::pair<QuantMax, LoDTensor> conv_input_scales) const {
   GET_IR_NODE_FROM_SUBGRAPH(conv_bias, conv_bias, conv_pattern);
   // Create and initialize bias variable
   VarDesc bias_desc(patterns::PDNodeName(prefix + "q_conv", "bias"));
@@ -233,8 +243,9 @@ void CPUQuantizePass::QuantizeBias(
   auto conv_bias_tensor =
       param_scope()->Var(conv_bias->Name())->Get<LoDTensor>();
   bias_tensor->Resize(conv_bias_tensor.dims());
-  std::fill_n(bias_tensor->mutable_data<float>(platform::CPUPlace()),
-              bias_tensor->numel(), 0);
+  float scale = conv_filter_scales.second.data<float>()[0] *
+                conv_input_scales.second.data<float>()[0];
+  QuantizeLoDTensor<float, float>(conv_bias_tensor, bias_tensor, scale);
 
   // update conv's inputs
   conv_op->Op()->SetInput("Bias",
@@ -307,12 +318,23 @@ void CPUQuantizePass::QuantizeConv(Graph* graph, bool with_bias,
 
     auto prefix = prefix_ss.str();
 
+    auto scales = Get<VarQuantMaxAndScale>("quant_var_scales");
+    GET_IR_NODE_FROM_SUBGRAPH(conv_filter, conv_filter, conv_pattern);
+    GET_IR_NODE_FROM_SUBGRAPH(conv_input, conv_input, conv_pattern);
+    GET_IR_NODE_FROM_SUBGRAPH(conv_output, conv_output, conv_pattern);
+    auto conv_filter_scales = scales[conv_filter->Name()];
+    auto conv_output_scales = scales[conv_output->Name()];
+    auto conv_input_scales = scales[conv_input->Name()];
     // create a quantize op node for input.
-    QuantizeInputOutput(subgraph, g, conv_pattern, conv_op, prefix);
+    QuantizeInputOutput(subgraph, g, conv_pattern, conv_op, prefix,
+                        conv_input_scales, conv_output_scales);
 
-    QuantizeWeights(subgraph, g, conv_pattern, conv_op, prefix);
+    QuantizeWeights(subgraph, g, conv_pattern, conv_op, prefix,
+                    conv_filter_scales);
 
-    if (with_bias) QuantizeBias(subgraph, g, conv_pattern, conv_op, prefix);
+    if (with_bias)
+      QuantizeBias(subgraph, g, conv_pattern, conv_op, prefix,
+                   conv_filter_scales, conv_input_scales);
 
     if (with_res_conn)
       QuantizeResidualConn(subgraph, g, conv_pattern, conv_op, prefix, pattern);
