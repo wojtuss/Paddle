@@ -96,8 +96,7 @@ void CPUQuantizePass::QuantizeInputOutput(
   deq_desc.SetInput("Input",
                     std::vector<std::string>({dequantize_in_node->Name()}));
   deq_desc.SetOutput("Output", std::vector<std::string>({conv_output->Name()}));
-  auto output_qmax_and_scale = scales[conv_output->Name()];
-  deq_desc.SetAttr("Scale", output_qmax_and_scale.second.data<float>()[0]);
+  deq_desc.SetAttr("Scale", input_qmax_and_scale.second.data<float>()[0]);
   auto dequantize_op = g->CreateOpNode(&deq_desc);  // OpDesc will be copied.
 
   // update conv's inputs and outputs
@@ -169,8 +168,7 @@ void CPUQuantizePass::QuantizePoolInputOutput(
   deq_desc.SetInput("Input",
                     std::vector<std::string>({dequantize_in_node->Name()}));
   deq_desc.SetOutput("Output", std::vector<std::string>({pool_output->Name()}));
-  auto output_qmax_and_scale = scales[pool_output->Name()];
-  deq_desc.SetAttr("Scale", output_qmax_and_scale.second.data<float>()[0]);
+  deq_desc.SetAttr("Scale", input_qmax_and_scale.second.data<float>()[0]);
   auto dequantize_op = g->CreateOpNode(&deq_desc);
 
   // update op's inputs and outputs
