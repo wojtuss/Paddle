@@ -56,18 +56,11 @@ template <typename OutT>
 void CPUQuantizePass::QuantizeInput(Graph* g, Node* op, Node* input,
                                     std::string input_name, std::string prefix,
                                     float scale, bool is_negative) const {
-  // Create and initialize quantize output variable
+  // Create quantize output variable
   VarDesc quantize_out_desc(patterns::PDNodeName(prefix + "quantize", "out"));
   quantize_out_desc.SetDataType(framework::ToDataType(typeid(OutT)));
   quantize_out_desc.SetShape(input->Var()->GetShape());
   auto* quantize_out_node = g->CreateVarNode(&quantize_out_desc);
-  // auto* quantize_out_tensor =
-  // param_scope()->Var(quantize_out_node->Name())->GetMutable<LoDTensor>();
-  // auto* input_tensor =
-  // param_scope()->Var(input->Name())->GetMutable<LoDTensor>();
-  // quantize_out_tensor->Resize(input_tensor->dims());
-  // std::fill_n(quantize_out_tensor->mutable_data<OutT>(platform::CPUPlace()),
-  // quantize_out_tensor->numel(), 0);
 
   // create a quantize op node
   OpDesc q_desc;
@@ -94,20 +87,11 @@ template <typename InT>
 void CPUQuantizePass::DequantizeOutput(Graph* g, Node* op, Node* output,
                                        std::string output_name,
                                        std::string prefix, float scale) const {
-  // Create and initialize dequantize input variable
+  // Create dequantize input variable
   VarDesc dequantize_in_desc(patterns::PDNodeName(prefix + "dequantize", "in"));
-  // dequantize_in_desc.SetDataType(proto::VarType::INT32);
   dequantize_in_desc.SetDataType(framework::ToDataType(typeid(InT)));
   dequantize_in_desc.SetShape(output->Var()->GetShape());
   auto* dequantize_in_node = g->CreateVarNode(&dequantize_in_desc);
-  // auto* dequantize_in_tensor =
-  // param_scope()->Var(dequantize_in_node->Name())->GetMutable<LoDTensor>();
-  // auto* output_tensor =
-  // param_scope()->Var(output->Name())->GetMutable<LoDTensor>();
-  // dequantize_in_tensor->Resize(output_tensor->dims());
-  // dequantize_in_tensor->Resize(framework::make_ddim(output->Var()->GetShape()));
-  // std::fill_n(dequantize_in_tensor->mutable_data<InT>(platform::CPUPlace()),
-  // dequantize_in_tensor->numel(), 0);
 
   // create a dequantize op node for output.
   OpDesc deq_desc;
@@ -173,41 +157,31 @@ void CPUQuantizePass::QuantizeConv(Graph* graph, bool with_bias,
         scales[conv_input->Name()].first == QuantMax::S8_MAX;
     auto conv_filter_scale =
         scales[conv_filter->Name()].second.data<float>()[0];
-    // auto conv_output_scale =
-    // scales[conv_output->Name()].second.data<float>()[0];
+    auto conv_output_scale =
+        scales[conv_output->Name()].second.data<float>()[0];
 
     QuantizeInput<int8_t>(g, conv_op, conv_input, "Input", prefix,
                           conv_input_scale, is_input_negative);
     conv_op->Op()->SetAttr("Scale_in", conv_input_scale);
 
-    // ScaleInput(conv_filter, conv_filter_scale);
     conv_op->Op()->SetAttr("Scale_weights",
                            std::vector<float>{conv_filter_scale});
 
-    // if (with_bias) {
-    // GET_IR_NODE_FROM_SUBGRAPH(conv_bias, conv_bias, conv_pattern);
-    // ScaleInput(conv_bias, conv_output_scale);
-    // }
-
-    auto conv_out_scale = conv_input_scale * conv_filter_scale;
+    // auto conv_out_scale = conv_input_scale * conv_filter_scale;
 
     if (with_res_conn) {
       GET_IR_NODE_FROM_SUBGRAPH(conv_residual_data, conv_residual_data,
                                 conv_pattern);
-      // auto conv_res_conn_scale =
-      // scales[conv_residual_data->Name()].second.data<float>()[0];
-      // auto conv_res_conn_scale = conv_input_scale * conv_filter_scale;
-      // bool is_res_conn_negative =
-      // scales[conv_residual_data->Name()].first == QuantMax::S8_MAX;
-      QuantizeInput<int32_t>(g, conv_op, conv_residual_data, "ResidualData",
-                             prefix, conv_out_scale, true);
-      // conv_op->Op()->SetAttr("Scale_in_eltwise", conv_res_conn_scale);
+      // TODO(wojtuss): what type should be ResidualData?
+      QuantizeInput<float>(g, conv_op, conv_residual_data, "ResidualData",
+                           prefix, conv_output_scale, true);
+      conv_op->Op()->SetAttr("Scale_in_eltwise", conv_output_scale);
       DequantizeOutput<int8_t>(g, conv_op, conv_output, "Output", prefix,
-                               conv_out_scale);
-      conv_op->Op()->SetAttr("Scale_out", conv_out_scale);
+                               conv_output_scale);
+      conv_op->Op()->SetAttr("Scale_out", conv_output_scale);
     } else {
-      conv_op->Op()->SetAttr("Scale_out", conv_out_scale);
-      // conv_op->Op()->SetAttr("Scale_out", 100.0f);
+      // conv_op->Op()->SetAttr("Scale_out", conv_out_scale);
+      conv_op->Op()->SetAttr("Scale_out", conv_output_scale);
       conv_op->Op()->SetAttr("force_fp32_output", true);
     }
     ++quantize_conv_count;

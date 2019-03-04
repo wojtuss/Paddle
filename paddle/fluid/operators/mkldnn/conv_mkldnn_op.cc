@@ -283,6 +283,15 @@ class ConvMKLDNNOpKernel : public paddle::framework::OpKernel<T> {
     stream(stream::kind::eager).submit(pipeline).wait();
 
     output->set_mkldnn_prim_desc(dst_memory_p->get_primitive_desc());
+
+    // print debug info
+    //
+    std::cout << "-- conv" << std::endl;
+    auto* output_d = output->data<float>();
+    std::cout << "fuse_residual_conn: " << fuse_residual_conn << std::endl;
+    std::cout << "output: ";
+    for (int i = 0; i < 10; ++i) printf("%f, ", output_d[i]);
+    std::cout << std::endl;
   }
   void ComputeINT8(const paddle::framework::ExecutionContext& ctx) const {
     const bool is_test = ctx.Attr<bool>("is_test");
@@ -641,15 +650,8 @@ class ConvMKLDNNOpKernel : public paddle::framework::OpKernel<T> {
         fuse_residual_conn ? scale_out_data / scale_in_eltwise_data : 1.0f;
 
     std::cout << "-- conv" << std::endl;
-    std::cout << "input: ";
-    for (int i = 0; i < 10; ++i) std::cout << input_data[i] << ", ";
-    std::cout << std::endl;
-    std::cout << "filter: ";
-    const K* filter_data = filter->data<K>();
-    for (int i = 0; i < 10; ++i) std::cout << filter_data[i] << ", ";
-    std::cout << std::endl;
-    std::cout << "scale_in: " << scale_in_data << std::endl;
     std::cout << "fuse_residual_conn: " << fuse_residual_conn << std::endl;
+    std::cout << "scale_in: " << scale_in_data << std::endl;
     std::cout << "scale_in_eltwise: " << scale_in_eltwise_data << std::endl;
     std::cout << "scale_weights: " << scale_weights_data[0] << std::endl;
     std::cout << "scale_out: " << scale_out_data << std::endl;
