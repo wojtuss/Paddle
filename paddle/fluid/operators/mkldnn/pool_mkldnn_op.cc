@@ -204,6 +204,24 @@ class PoolMKLDNNOpKernel : public paddle::framework::OpKernel<T> {
 
     output->set_layout(DataLayout::kMKLDNN);
     output->set_format(output_format);
+
+    // print debug info
+    std::cout << "-- pool" << std::endl;
+    std::cout << "input: ";
+    for (int i = 0; i < 10; ++i) std::cout << input_data[i] << ", ";
+    std::cout << std::endl;
+
+    if (output->type() == framework::proto::VarType::INT8) {
+      auto* output_d = output->data<int8_t>();
+      std::cout << "output: ";
+      for (int i = 0; i < 10; ++i) printf("%d, ", output_d[i]);
+      std::cout << std::endl;
+    } else if (output->type() == framework::proto::VarType::UINT8) {
+      auto* output_d = output->data<uint8_t>();
+      std::cout << "output: ";
+      for (int i = 0; i < 10; ++i) printf("%u, ", output_d[i]);
+      std::cout << std::endl;
+    }
   }
 
  private:
