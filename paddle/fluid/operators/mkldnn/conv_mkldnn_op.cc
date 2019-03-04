@@ -629,6 +629,42 @@ class ConvMKLDNNOpKernel : public paddle::framework::OpKernel<T> {
 
     output->set_layout(DataLayout::kMKLDNN);
     output->set_format(GetMKLDNNFormat(*dst_memory_p));
+
+    // print debug info
+    //
+    auto scale_in_data = ctx.Attr<float>("Scale_in");
+    auto scale_in_eltwise_data = ctx.Attr<float>("Scale_in_eltwise");
+    auto scale_weights_data = ctx.Attr<std::vector<float>>("Scale_weights");
+    auto scale_out_data =
+        force_fp32_output ? 1.0f : ctx.Attr<float>("Scale_out");
+    float sum_scale =
+        fuse_residual_conn ? scale_out_data / scale_in_eltwise_data : 1.0f;
+
+    std::cout << "-- conv" << std::endl;
+    std::cout << "input: ";
+    for (int i = 0; i < 10; ++i) std::cout << input_data[i] << ", ";
+    std::cout << std::endl;
+    std::cout << "filter: ";
+    const K* filter_data = filter->data<K>();
+    for (int i = 0; i < 10; ++i) std::cout << filter_data[i] << ", ";
+    std::cout << std::endl;
+    std::cout << "scale_in: " << scale_in_data << std::endl;
+    std::cout << "scale_in_eltwise: " << scale_in_eltwise_data << std::endl;
+    std::cout << "scale_weights: " << scale_weights_data[0] << std::endl;
+    std::cout << "scale_out: " << scale_out_data << std::endl;
+    std::cout << "sum_scale: " << sum_scale << std::endl;
+
+    if (output->type() == framework::proto::VarType::UINT8) {
+      auto* output_d = output->data<uint8_t>();
+      std::cout << "output: ";
+      for (int i = 0; i < 10; ++i) printf("%u, ", output_d[i]);
+      std::cout << std::endl;
+    } else {
+      auto* output_d = output->data<int8_t>();
+      std::cout << "output: ";
+      for (int i = 0; i < 10; ++i) printf("%d, ", output_d[i]);
+      std::cout << std::endl;
+    }
   }
 
  private:

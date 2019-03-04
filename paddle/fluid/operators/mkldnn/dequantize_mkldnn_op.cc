@@ -112,7 +112,17 @@ class DeQuantOpKernel : public framework::OpKernel<T> {
     pipeline.push_back(*reorder_p);
     stream(stream::kind::eager).submit(pipeline).wait();
 
+    // print debug info
     output->set_format(GetMKLDNNFormat(*dst_memory));
+    auto* output_d = output->data<float>();
+    std::cout << "-- dequant" << std::endl;
+    std::cout << "scale: " << scale_data << std::endl;
+    std::cout << "input: ";
+    for (int i = 0; i < 10; ++i) printf("%d, ", input_data[i]);
+    std::cout << std::endl;
+    std::cout << "output: ";
+    for (int i = 0; i < 10; ++i) std::cout << output_d[i] << ", ";
+    std::cout << std::endl;
   }
 };
 
