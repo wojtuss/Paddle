@@ -52,7 +52,7 @@ bool AnalysisPredictor::Quantizer::CalculateScales() {
                        "Only support lod tensor now.");
         LoDTensor* var_tensor = var->GetMutable<LoDTensor>();
 
-        CalculateSingleScale(op->Type(), conn.first, var_name, var_tensor);
+        CalculateSingleScale(op->Type(), conn.first, var_name, *var_tensor);
       }
     }
   }
@@ -62,9 +62,9 @@ bool AnalysisPredictor::Quantizer::CalculateScales() {
 
 void AnalysisPredictor::Quantizer::CalculateSingleScale(
     const std::string& op_type_name, const std::string& conn_name,
-    const std::string& var_name, const LoDTensor* var_tensor) {
+    const std::string& var_name, const LoDTensor& var_tensor) {
   PADDLE_ENFORCE(
-      var_tensor->numel() > 0,
+      var_tensor.numel() > 0,
       "Quantizer: LoDTensor of variable for quantization should not be empty.");
 
   if (scales_.find(var_name) != scales_.end()) return;
@@ -115,9 +115,9 @@ std::vector<int> AnalysisPredictor::Quantizer::ExpandQuantizedBins(
 }
 
 std::pair<QuantMax, LoDTensor> AnalysisPredictor::Quantizer::GetKLScalingFactor(
-    const LoDTensor* var_tensor) const {
-  ConstEigenVectorArrayMap eigen_tensor{var_tensor->data<float>(),
-                                        var_tensor->numel(), 1};
+    const LoDTensor& var_tensor) const {
+  ConstEigenVectorArrayMap eigen_tensor{var_tensor.data<float>(),
+                                        var_tensor.numel(), 1};
   int precision_hist_num_bins = 2048;
   float max_val = eigen_tensor.maxCoeff();
   float min_val = eigen_tensor.minCoeff();
@@ -229,9 +229,9 @@ std::pair<QuantMax, LoDTensor> AnalysisPredictor::Quantizer::GetKLScalingFactor(
 
 std::pair<QuantMax, LoDTensor>
 AnalysisPredictor::Quantizer::GetMaxScalingFactor(
-    const LoDTensor* var_tensor) const {
-  ConstEigenVectorArrayMap eigen_tensor{var_tensor->data<float>(),
-                                        var_tensor->numel(), 1};
+    const LoDTensor& var_tensor) const {
+  ConstEigenVectorArrayMap eigen_tensor{var_tensor.data<float>(),
+                                        var_tensor.numel(), 1};
   float min_val = eigen_tensor.minCoeff();
   bool is_positive = min_val >= 0.0f;
   auto quant_max = is_positive ? QuantMax::U8_MAX : QuantMax::S8_MAX;
@@ -250,24 +250,29 @@ AnalysisPredictor::Quantizer::GetMaxScalingFactor(
 }
 
 std::pair<std::vector<int>, float> AnalysisPredictor::Quantizer::Histogram(
-    const framework::LoDTensor* var_tensor, float min_val, float max_val,
+    const framework::LoDTensor& var_tensor, float min_val, float max_val,
     size_t num_bins) const {
   PADDLE_ENFORCE_GT(num_bins, 0,
                     "Quantizer: To calculate Histogram, num_bins (" +
                         std::to_string(num_bins) + ") must be positive.");
-  PADDLE_ENFORCE(max_val > min_val,
+  PADDLE_ENFORCE_GT(
+      var_tensor.numel(), 0,
+      "Quantizer: To calculate Histogram, the tensor must not be empty.");
+  PADDLE_ENFORCE(max_val >= min_val,
                  "Quantizer: To calculate Histogram, max_val (" +
                      std::to_string(max_val) +
-                     ") must be greater "
-                     "than min_val (" +
+                     ") must be greater or equal"
+                     "to min_val (" +
                      std::to_string(min_val) + ").");
-  ConstEigenVectorArrayMap eigen_tensor{var_tensor->data<float>(),
-                                        var_tensor->numel(), 1};
-  auto bin_width = (max_val - min_val) / num_bins;
+  ConstEigenVectorArrayMap eigen_tensor{var_tensor.data<float>(),
+                                        var_tensor.numel(), 1};
+  auto bin_width = std::abs(max_val - min_val) / num_bins;
   std::vector<int> hist(num_bins);
 
   for (int i = 0; i < eigen_tensor.size(); i++) {
-    int bin = static_cast<int>(floor((eigen_tensor[i] - min_val) / bin_width));
+    int bin = std::min(
+        num_bins - 1,
+        static_cast<size_t>(floor((eigen_tensor[i] - min_val) / bin_width)));
     ++hist[bin];
   }
 

@@ -127,11 +127,7 @@ class AnalysisPredictor : public PaddlePredictor {
   FRIEND_TEST(AnalysisPredictor, analysis_on);
   FRIEND_TEST(AnalysisPredictor, with_gpu);
 
-  FRIEND_TEST(Quantizer, expand_quantized_bins);
-  FRIEND_TEST(Quantizer, histogram);
-  FRIEND_TEST(Quantizer, kl_scaling_factor);
-  FRIEND_TEST(Quantizer, max_scaling_factor);
-  FRIEND_TEST(Quantizer, safe_entropy);
+  friend class QuantizerTest;
 #endif
 
  private:
@@ -194,7 +190,7 @@ class AnalysisPredictor::Quantizer {
   void CalculateSingleScale(const std::string &op_name,
                             const std::string &conn_name,
                             const std::string &var_name,
-                            const framework::LoDTensor *var_tensor);
+                            const framework::LoDTensor &var_tensor);
   void PrepareArgument() const;
   bool RunQuantizePasses() const;
   bool SaveModel() const;
@@ -204,14 +200,14 @@ class AnalysisPredictor::Quantizer {
 
   // Using the KL-divergence method get the most precise scaling factor.
   std::pair<QuantMax, framework::LoDTensor> GetKLScalingFactor(
-      const framework::LoDTensor *var_tensor) const;
+      const framework::LoDTensor &var_tensor) const;
 
   std::pair<QuantMax, framework::LoDTensor> GetMaxScalingFactor(
-      const framework::LoDTensor *var_tensor) const;
+      const framework::LoDTensor &var_tensor) const;
 
   // Returns histogram and bin width
   std::pair<std::vector<int>, float> Histogram(
-      const framework::LoDTensor *var_tensor, float min_val, float max_val,
+      const framework::LoDTensor &var_tensor, float min_val, float max_val,
       size_t num_bins = 2048) const;
 
   // Calculate the entropy.
