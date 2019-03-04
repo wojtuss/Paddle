@@ -649,6 +649,7 @@ class ConvMKLDNNOpKernel : public paddle::framework::OpKernel<T> {
     for (int i = 0; i < 10; ++i) std::cout << filter_data[i] << ", ";
     std::cout << std::endl;
     std::cout << "scale_in: " << scale_in_data << std::endl;
+    std::cout << "fuse_residual_conn: " << fuse_residual_conn << std::endl;
     std::cout << "scale_in_eltwise: " << scale_in_eltwise_data << std::endl;
     std::cout << "scale_weights: " << scale_weights_data[0] << std::endl;
     std::cout << "scale_out: " << scale_out_data << std::endl;
@@ -659,10 +660,15 @@ class ConvMKLDNNOpKernel : public paddle::framework::OpKernel<T> {
       std::cout << "output: ";
       for (int i = 0; i < 10; ++i) printf("%u, ", output_d[i]);
       std::cout << std::endl;
-    } else {
+    } else if (output->type() == framework::proto::VarType::INT8) {
       auto* output_d = output->data<int8_t>();
       std::cout << "output: ";
       for (int i = 0; i < 10; ++i) printf("%d, ", output_d[i]);
+      std::cout << std::endl;
+    } else {
+      auto* output_d = output->data<float>();
+      std::cout << "output: ";
+      for (int i = 0; i < 10; ++i) printf("%f, ", output_d[i]);
       std::cout << std::endl;
     }
   }

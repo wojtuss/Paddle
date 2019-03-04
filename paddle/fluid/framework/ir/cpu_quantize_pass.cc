@@ -178,11 +178,11 @@ void CPUQuantizePass::QuantizeConv(Graph* graph, bool with_bias,
 
     QuantizeInput<int8_t>(g, conv_op, conv_input, "Input", prefix,
                           conv_input_scale, is_input_negative);
-    // conv_op->Op()->SetAttr("Scale_in", conv_input_scale);
+    conv_op->Op()->SetAttr("Scale_in", conv_input_scale);
 
-    ScaleInput(conv_filter, conv_filter_scale);
-    // conv_op->Op()->SetAttr("Scale_weights",
-    // std::vector<float>{conv_filter_scale});
+    // ScaleInput(conv_filter, conv_filter_scale);
+    conv_op->Op()->SetAttr("Scale_weights",
+                           std::vector<float>{conv_filter_scale});
 
     // if (with_bias) {
     // GET_IR_NODE_FROM_SUBGRAPH(conv_bias, conv_bias, conv_pattern);
@@ -202,12 +202,14 @@ void CPUQuantizePass::QuantizeConv(Graph* graph, bool with_bias,
       QuantizeInput<int32_t>(g, conv_op, conv_residual_data, "ResidualData",
                              prefix, conv_out_scale, true);
       // conv_op->Op()->SetAttr("Scale_in_eltwise", conv_res_conn_scale);
+      DequantizeOutput<int8_t>(g, conv_op, conv_output, "Output", prefix,
+                               conv_out_scale);
+      conv_op->Op()->SetAttr("Scale_out", conv_out_scale);
+    } else {
+      conv_op->Op()->SetAttr("Scale_out", conv_out_scale);
+      // conv_op->Op()->SetAttr("Scale_out", 100.0f);
+      conv_op->Op()->SetAttr("force_fp32_output", true);
     }
-
-    DequantizeOutput<int32_t>(g, conv_op, conv_output, "Output", prefix,
-                              conv_out_scale);
-    conv_op->Op()->SetAttr("Scale_out", conv_out_scale);
-
     ++quantize_conv_count;
   };
 
