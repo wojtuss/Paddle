@@ -173,8 +173,8 @@ void CPUQuantizePass::QuantizeConv(Graph* graph, bool with_bias,
       GET_IR_NODE_FROM_SUBGRAPH(conv_residual_data, conv_residual_data,
                                 conv_pattern);
       // TODO(wojtuss): what type should be ResidualData?
-      QuantizeInput<float>(g, conv_op, conv_residual_data, "ResidualData",
-                           prefix, conv_output_scale, true);
+      QuantizeInput<int32_t>(g, conv_op, conv_residual_data, "ResidualData",
+                             prefix, conv_output_scale, true);
       conv_op->Op()->SetAttr("Scale_in_eltwise", conv_output_scale);
       DequantizeOutput<int8_t>(g, conv_op, conv_output, "Output", prefix,
                                conv_output_scale);
@@ -227,13 +227,12 @@ void CPUQuantizePass::QuantizePool(Graph* graph) const {
     auto input_scale = scales[pool_input->Name()].second.data<float>()[0];
     bool is_input_negative =
         scales[pool_input->Name()].first == QuantMax::S8_MAX;
-    auto output_scale = scales[pool_output->Name()].second.data<float>()[0];
 
-    std::string prefix{"aaa"};
+    std::string prefix{"q_pool"};
     QuantizeInput<int8_t>(g, pool_op, pool_input, "X", prefix, input_scale,
                           is_input_negative);
     DequantizeOutput<int8_t>(g, pool_op, pool_output, "Out", prefix,
-                             output_scale);
+                             input_scale);
 
     ++quantize_pool_count;
   };
@@ -256,7 +255,7 @@ std::unique_ptr<ir::Graph> CPUQuantizePass::ApplyImpl(
 
   QuantizeConv(graph.get(), true /* with_bias */, true /* with_res_conn */);
   QuantizeConv(graph.get(), true /* with_bias */);
-  // QuantizePool(graph.get());
+  QuantizePool(graph.get());
 
   return graph;
 }
