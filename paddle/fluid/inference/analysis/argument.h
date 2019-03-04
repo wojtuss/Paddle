@@ -24,7 +24,9 @@
 #pragma once
 
 #include <map>
+#include <memory>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 #include "paddle/fluid/framework/ir/graph.h"
