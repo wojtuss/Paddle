@@ -19,7 +19,7 @@ namespace paddle {
 QuantizerConfig::QuantizerConfig() {
   // The default configuration of scale computing algorightms
   rules_["conv2d"]["Input"] = ScaleAlgo::KL;
-  rules_["conv2d"]["Filter"] = ScaleAlgo::MAX;
+  rules_["conv2d"]["Filter"] = ScaleAlgo::MAX_CH;
   rules_["conv2d"]["Bias"] = ScaleAlgo::NONE;  // do not compute scale
   rules_["conv2d"]["ResidualData"] = ScaleAlgo::KL;
   rules_["conv2d"]["Output"] = ScaleAlgo::KL;  // do not compute scale
