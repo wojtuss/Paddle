@@ -37,8 +37,7 @@ class CPUQuantizePass : public FusePassBase {
   std::unique_ptr<ir::Graph> ApplyImpl(
       std::unique_ptr<ir::Graph> graph) const override;
 
-  void QuantizeConv(Graph* graph, bool with_bias = false,
-                    bool with_res_conn = false) const;
+  void QuantizeConv(Graph* graph, bool with_residual_data = false) const;
 
   void QuantizePool(Graph* graph) const;
 
