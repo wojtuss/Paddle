@@ -52,7 +52,7 @@ ProgramDesc BuildProgramDesc() {
                                  "h", "weights2", "bias2", "k", "l"})) {
     auto* var = prog.MutableBlock(0)->Var(v);
     var->SetType(proto::VarType::SELECTED_ROWS);
-    if (v == "weights" || v == "bias") {
+    if (v.find("weights") == 0 || v.find("bias") == 0) {
       var->SetPersistable(true);
     }
   }
