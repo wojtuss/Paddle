@@ -155,8 +155,11 @@ void CPUQuantizePass::QuantizeConv(Graph* graph, bool with_bias,
     auto conv_input_scale = scales[conv_input->Name()].second.data<float>()[0];
     bool is_input_negative =
         scales[conv_input->Name()].first == QuantMax::S8_MAX;
-    auto conv_filter_scale =
-        scales[conv_filter->Name()].second.data<float>()[0];
+    auto conv_filter_scale_tensor = scales[conv_filter->Name()].second;
+    std::vector<float> conv_filter_scale{
+        conv_filter_scale_tensor.data<float>(),
+        conv_filter_scale_tensor.data<float>() +
+            conv_filter_scale_tensor.numel()};
     auto conv_output_scale =
         scales[conv_output->Name()].second.data<float>()[0];
 
@@ -164,8 +167,7 @@ void CPUQuantizePass::QuantizeConv(Graph* graph, bool with_bias,
                           conv_input_scale, is_input_negative);
     conv_op->Op()->SetAttr("Scale_in", conv_input_scale);
 
-    conv_op->Op()->SetAttr("Scale_weights",
-                           std::vector<float>{conv_filter_scale});
+    conv_op->Op()->SetAttr("Scale_weights", conv_filter_scale);
 
     // auto conv_out_scale = conv_input_scale * conv_filter_scale;
 
@@ -176,14 +178,11 @@ void CPUQuantizePass::QuantizeConv(Graph* graph, bool with_bias,
       QuantizeInput<int32_t>(g, conv_op, conv_residual_data, "ResidualData",
                              prefix, conv_output_scale, true);
       conv_op->Op()->SetAttr("Scale_in_eltwise", conv_output_scale);
-      DequantizeOutput<int8_t>(g, conv_op, conv_output, "Output", prefix,
-                               conv_output_scale);
-      conv_op->Op()->SetAttr("Scale_out", conv_output_scale);
-    } else {
-      // conv_op->Op()->SetAttr("Scale_out", conv_out_scale);
-      conv_op->Op()->SetAttr("Scale_out", conv_output_scale);
-      conv_op->Op()->SetAttr("force_fp32_output", true);
     }
+
+    DequantizeOutput<int8_t>(g, conv_op, conv_output, "Output", prefix,
+                             conv_output_scale);
+    conv_op->Op()->SetAttr("Scale_out", conv_output_scale);
     ++quantize_conv_count;
   };
 

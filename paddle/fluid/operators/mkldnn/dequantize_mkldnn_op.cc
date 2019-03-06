@@ -87,7 +87,7 @@ class DeQuantOpKernel : public framework::OpKernel<T> {
           std::shared_ptr<primitive::at>(new primitive::at(*src_memory));
 
       auto dst_md = platform::MKLDNNMemDesc({dst_tz}, memory::data_type::f32,
-                                            memory::format::nchw);
+                                            memory::format::nChw16c);
       auto dst_pd = mkldnn::memory::primitive_desc(dst_md, engine);
       dst_memory = std::make_shared<mkldnn::memory>(
           dst_pd, to_void_cast<float>(output_data));
@@ -113,15 +113,16 @@ class DeQuantOpKernel : public framework::OpKernel<T> {
     stream(stream::kind::eager).submit(pipeline).wait();
 
     // print debug info
+    const int debug_n = 17;
     output->set_format(GetMKLDNNFormat(*dst_memory));
     auto* output_d = output->data<float>();
     std::cout << "-- dequant" << std::endl;
     std::cout << "scale: " << scale_data << std::endl;
     std::cout << "input: ";
-    for (int i = 0; i < 10; ++i) printf("%d, ", input_data[i]);
+    for (int i = 0; i < debug_n; ++i) printf("%d, ", input_data[i]);
     std::cout << std::endl;
     std::cout << "output: ";
-    for (int i = 0; i < 10; ++i) std::cout << output_d[i] << ", ";
+    for (int i = 0; i < debug_n; ++i) std::cout << output_d[i] << ", ";
     std::cout << std::endl;
   }
 };

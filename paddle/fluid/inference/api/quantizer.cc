@@ -73,10 +73,12 @@ void AnalysisPredictor::Quantizer::CalculateSingleScale(
   switch (rule) {
     case ScaleAlgo::NONE:
       return;
-    case ScaleAlgo::MAX: {
+    case ScaleAlgo::MAX:
       scales_[var_name] = GetMaxScalingFactor(var_tensor);
       break;
-    }
+    case ScaleAlgo::MAX_CH:
+      scales_[var_name] = GetMaxChScalingFactor(var_tensor);
+      break;
     case ScaleAlgo::KL:
       scales_[var_name] = GetKLScalingFactor(var_tensor);
       break;
@@ -246,6 +248,34 @@ AnalysisPredictor::Quantizer::GetMaxScalingFactor(
 
   float max_abs = eigen_tensor.abs().maxCoeff();
   scale_ptr[0] = static_cast<float>(static_cast<unsigned>(quant_max) / max_abs);
+
+  return std::make_pair(quant_max, scale_tensor);
+}
+
+std::pair<QuantMax, LoDTensor>
+AnalysisPredictor::Quantizer::GetMaxChScalingFactor(
+    const LoDTensor& var_tensor) const {
+  PADDLE_ENFORCE(var_tensor.dims().size() > 0, "Tensor dimension is empty.");
+
+  float min_val = *std::min_element(
+      var_tensor.data<float>(), var_tensor.data<float>() + var_tensor.numel());
+  bool is_positive = min_val >= 0;
+  auto quant_max = is_positive ? QuantMax::U8_MAX : QuantMax::S8_MAX;
+
+  int channels = var_tensor.dims()[0];
+  LoDTensor scale_tensor;
+  scale_tensor.Resize({channels});
+  auto* scale_ptr = scale_tensor.mutable_data<float>(CPUPlace());
+
+#pragma omp parallel for
+  for (int i = 0; i < channels; ++i) {
+    const auto tensor = var_tensor.Slice(i, i + 1);
+
+    ConstEigenVectorArrayMap eigen_tensor{tensor.data<float>(), tensor.numel(),
+                                          1};
+    float max_abs = eigen_tensor.abs().maxCoeff();
+    scale_ptr[i] = static_cast<float>(quant_max) / max_abs;
+  }
 
   return std::make_pair(quant_max, scale_tensor);
 }
