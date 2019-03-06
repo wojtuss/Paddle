@@ -27,14 +27,12 @@ void SetOp(ProgramDesc* prog, const std::string& type, const std::string& name,
   auto* op = prog->MutableBlock(0)->AppendOp();
   op->SetType(type);
   op->SetAttr("use_mkldnn", use_mkldnn);
+  op->SetAttr("name", name);
   if (type == "conv2d") {
-    op->SetAttr("name", name);
     op->SetInput("Input", {inputs[0]});
-    op->SetInput("Filter", {inputs[1]});
-    if (inputs.size() > 2)
-      op->SetInput("Bias", {inputs[2]});
-    else
-      op->SetInput("Bias", {});
+    if (inputs.size() > 1) op->SetInput("Filter", {inputs[1]});
+    if (inputs.size() > 2) op->SetInput("Bias", {inputs[2]});
+    op->SetOutput("Output", {outputs[0]});
   } else if (type == "quantize") {
     op->SetInput("Input", {inputs[0]});
     op->SetOutput("Output", {outputs[0]});
