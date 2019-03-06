@@ -323,13 +323,13 @@ void AnalysisPredictor::Quantizer::PrepareArgument() const {
   builder->AnalysisPasses().clear();
   builder->SetPasses({
       "infer_clean_graph_pass",
-      "cpu_quantize_pass",  // TODO(wojtuss): quantize chosen operators
-      /* "cpu_quantize_squash_pass", */    // TODO(wojtuss): squash
-                                           // dequantize-quantize
-                                           // pairs
-      /* "cpu_quantize_scale_out_pass" */  // TODO(wojtuss): fuse
-                                           // conv->dequantize
-                                           // pattern
+      "cpu_quantize_pass",           // TODO(wojtuss): quantize chosen operators
+      "cpu_quantize_squash_pass",    // TODO(wojtuss): squash
+                                     // dequantize-quantize
+                                     // pairs
+      "cpu_quantize_scale_out_pass"  // TODO(wojtuss): fuse
+                                     // conv->de/requantize
+                                     // pattern
   });
   builder->TurnOnDebug();  // TODO(wojtuss): for development phase
   auto passes = builder->AllPasses();

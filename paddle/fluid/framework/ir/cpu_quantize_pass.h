@@ -51,34 +51,6 @@ class CPUQuantizePass : public FusePassBase {
                         std::string output_name, std::string prefix,
                         float scale) const;
 
-  void ScaleInput(Node* input, float scale) const;
-
-  void QuantizeInputOutput(
-      const GraphPatternDetector::subgraph_t& subgraph, Graph* g,
-      patterns::Conv conv_pattern, Node* conv_op, std::string prefix,
-      std::pair<QuantMax, LoDTensor> conv_input_scales,
-      std::pair<QuantMax, LoDTensor> conv_output_scales) const;
-
-  void QuantizePoolInputOutput(const GraphPatternDetector::subgraph_t& subgraph,
-                               Graph* g, patterns::Pool pool_pattern,
-                               Node* pool_op) const;
-
-  void QuantizeResidualConn(const GraphPatternDetector::subgraph_t& subgraph,
-                            Graph* g, patterns::Conv conv_pattern,
-                            Node* conv_op, std::string prefix,
-                            PDPattern* base_pattern) const;
-
-  void QuantizeWeights(const GraphPatternDetector::subgraph_t& subgraph,
-                       Graph* g, patterns::Conv conv_pattern, Node* conv_op,
-                       std::string prefix,
-                       std::pair<QuantMax, LoDTensor> conv_filter_scales) const;
-
-  void QuantizeBias(const GraphPatternDetector::subgraph_t& subgraph, Graph* g,
-                    patterns::Conv conv_pattern, Node* conv_op,
-                    std::string prefix,
-                    std::pair<QuantMax, LoDTensor> conv_filter_scales,
-                    std::pair<QuantMax, LoDTensor> conv_input_scales) const;
-
   const std::string name_scope_{"quantize"};
 };
 

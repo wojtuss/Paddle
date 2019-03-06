@@ -113,12 +113,6 @@ void CPUQuantizePass::DequantizeOutput(Graph* g, Node* op, Node* output,
   IR_NODE_LINK_TO(dequantize_op, output);
 }
 
-void CPUQuantizePass::ScaleInput(Node* input, float scale) const {
-  auto* input_tensor =
-      param_scope()->Var(input->Name())->GetMutable<LoDTensor>();
-  ScaleLoDTensor<float>(input_tensor, scale);
-}
-
 void CPUQuantizePass::QuantizeConv(Graph* graph, bool with_bias,
                                    bool with_res_conn) const {
   GraphPatternDetector gpd;
@@ -166,15 +160,11 @@ void CPUQuantizePass::QuantizeConv(Graph* graph, bool with_bias,
     QuantizeInput<int8_t>(g, conv_op, conv_input, "Input", prefix,
                           conv_input_scale, is_input_negative);
     conv_op->Op()->SetAttr("Scale_in", conv_input_scale);
-
     conv_op->Op()->SetAttr("Scale_weights", conv_filter_scale);
-
-    // auto conv_out_scale = conv_input_scale * conv_filter_scale;
 
     if (with_res_conn) {
       GET_IR_NODE_FROM_SUBGRAPH(conv_residual_data, conv_residual_data,
                                 conv_pattern);
-      // TODO(wojtuss): what type should be ResidualData?
       QuantizeInput<int32_t>(g, conv_op, conv_residual_data, "ResidualData",
                              prefix, conv_output_scale, true);
       conv_op->Op()->SetAttr("Scale_in_eltwise", conv_output_scale);
@@ -183,6 +173,7 @@ void CPUQuantizePass::QuantizeConv(Graph* graph, bool with_bias,
     DequantizeOutput<int8_t>(g, conv_op, conv_output, "Output", prefix,
                              conv_output_scale);
     conv_op->Op()->SetAttr("Scale_out", conv_output_scale);
+
     ++quantize_conv_count;
   };
 
