@@ -29,6 +29,8 @@ using mkldnn::stream;
 using platform::to_void_cast;
 using platform::GetMKLDNNFormat;
 
+const int debug_n = 17;
+
 inline void GetWeightsTz(std::vector<int>& weights_tz, int groups,  // NOLINT
                          bool is_conv3d) {
   if (groups > 1) {
@@ -290,7 +292,7 @@ class ConvMKLDNNOpKernel : public paddle::framework::OpKernel<T> {
     auto* output_d = output->data<float>();
     std::cout << "fuse_residual_conn: " << fuse_residual_conn << std::endl;
     std::cout << "output: ";
-    for (int i = 0; i < 10; ++i) printf("%f, ", output_d[i]);
+    for (int i = 0; i < debug_n; ++i) printf("%f, ", output_d[i]);
     std::cout << std::endl;
   }
   void ComputeINT8(const paddle::framework::ExecutionContext& ctx) const {
@@ -660,17 +662,17 @@ class ConvMKLDNNOpKernel : public paddle::framework::OpKernel<T> {
     if (output->type() == framework::proto::VarType::UINT8) {
       auto* output_d = output->data<uint8_t>();
       std::cout << "output: ";
-      for (int i = 0; i < 10; ++i) printf("%u, ", output_d[i]);
+      for (int i = 0; i < debug_n; ++i) printf("%u, ", output_d[i]);
       std::cout << std::endl;
     } else if (output->type() == framework::proto::VarType::INT8) {
       auto* output_d = output->data<int8_t>();
       std::cout << "output: ";
-      for (int i = 0; i < 10; ++i) printf("%d, ", output_d[i]);
+      for (int i = 0; i < debug_n; ++i) printf("%d, ", output_d[i]);
       std::cout << std::endl;
     } else {
       auto* output_d = output->data<float>();
       std::cout << "output: ";
-      for (int i = 0; i < 10; ++i) printf("%f, ", output_d[i]);
+      for (int i = 0; i < debug_n; ++i) printf("%f, ", output_d[i]);
       std::cout << std::endl;
     }
   }

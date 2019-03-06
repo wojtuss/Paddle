@@ -267,8 +267,9 @@ AnalysisPredictor::Quantizer::GetMaxChScalingFactor(
   scale_tensor.Resize({channels});
   auto* scale_ptr = scale_tensor.mutable_data<float>(CPUPlace());
 
+#pragma omp parallel for
   for (int i = 0; i < channels; ++i) {
-    auto tensor = var_tensor.Slice(i, i + 1);
+    const auto tensor = var_tensor.Slice(i, i + 1);
 
     ConstEigenVectorArrayMap eigen_tensor{tensor.data<float>(), tensor.numel(),
                                           1};

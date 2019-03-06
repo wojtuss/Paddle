@@ -178,14 +178,11 @@ void CPUQuantizePass::QuantizeConv(Graph* graph, bool with_bias,
       QuantizeInput<int32_t>(g, conv_op, conv_residual_data, "ResidualData",
                              prefix, conv_output_scale, true);
       conv_op->Op()->SetAttr("Scale_in_eltwise", conv_output_scale);
-      DequantizeOutput<int8_t>(g, conv_op, conv_output, "Output", prefix,
-                               conv_output_scale);
-      conv_op->Op()->SetAttr("Scale_out", conv_output_scale);
-    } else {
-      // conv_op->Op()->SetAttr("Scale_out", conv_out_scale);
-      conv_op->Op()->SetAttr("Scale_out", conv_output_scale);
-      conv_op->Op()->SetAttr("force_fp32_output", true);
     }
+
+    DequantizeOutput<int8_t>(g, conv_op, conv_output, "Output", prefix,
+                             conv_output_scale);
+    conv_op->Op()->SetAttr("Scale_out", conv_output_scale);
     ++quantize_conv_count;
   };
 
@@ -257,7 +254,7 @@ std::unique_ptr<ir::Graph> CPUQuantizePass::ApplyImpl(
 
   QuantizeConv(graph.get(), true /* with_bias */, true /* with_res_conn */);
   QuantizeConv(graph.get(), true /* with_bias */);
-  // QuantizePool(graph.get());
+  QuantizePool(graph.get());
 
   return graph;
 }
