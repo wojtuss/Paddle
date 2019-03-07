@@ -23,7 +23,35 @@ namespace paddle {
 namespace framework {
 namespace ir {
 
-void CPUQuantizeSquashPass::SingleBranch(Graph* graph) const {
+void CPUQuantizeSquashPass::FindNodesToKeep(
+    Graph* graph,
+    std::unordered_map<const Node*, int>& nodes_keep_counter) const {
+  GraphPatternDetector gpd;
+  patterns::DequantAny deq_any_pattern{gpd.mutable_pattern(),
+                                       "deqant_not_quant"};
+  deq_any_pattern();
+
+  int found_count = 0;
+  auto handler = [&](const GraphPatternDetector::subgraph_t& subgraph,
+                     Graph* g) {
+    auto* scope = param_scope();
+    PADDLE_ENFORCE(scope);
+
+    GET_IR_NODE_FROM_SUBGRAPH(dequant_out, dequant_out, deq_any_pattern);
+
+    if (nodes_keep_counter.find(dequant_out) == nodes_keep_counter.end())
+      nodes_keep_counter[dequant_out] = 1;
+    else
+      nodes_keep_counter[dequant_out] += 1;
+    found_count++;
+  };
+  gpd(graph, handler);
+  AddStatis(found_count);
+}
+
+void CPUQuantizeSquashPass::Squash(
+    Graph* graph,
+    std::unordered_map<const Node*, int>& nodes_keep_counter) const {
   GraphPatternDetector gpd;
   patterns::DequantQuantRM squash_pattern{gpd.mutable_pattern(), "squash_pass"};
   squash_pattern();
@@ -32,6 +60,10 @@ void CPUQuantizeSquashPass::SingleBranch(Graph* graph) const {
   auto handler = [&](const GraphPatternDetector::subgraph_t& subgraph,
                      Graph* g) {
     VLOG(4) << "handle cpu quantize squash pass";
+
+    auto* scope = param_scope();
+    PADDLE_ENFORCE(scope);
+
     GET_IR_NODE_FROM_SUBGRAPH(dequant, dequantize, squash_pattern);
     GET_IR_NODE_FROM_SUBGRAPH(quant, quantize, squash_pattern);
     GET_IR_NODE_FROM_SUBGRAPH(next_op, next_op, squash_pattern);
@@ -45,6 +77,10 @@ void CPUQuantizeSquashPass::SingleBranch(Graph* graph) const {
     float quant_scale = boost::get<float>(quant->Op()->GetAttr("Scale"));
     bool is_negative =
         boost::get<bool>(quant->Op()->GetAttr("is_negative_input"));
+    PADDLE_ENFORCE(nodes_keep_counter.find(dequant_out) !=
+                   nodes_keep_counter.end());
+    bool keep_dequant = nodes_keep_counter[dequant_out] > 1;
+    nodes_keep_counter[dequant_out] -= 1;
 
     if (dequant_scale == quant_scale) {
       auto quant_out_var_name = quant_out->Name();
@@ -58,7 +94,11 @@ void CPUQuantizeSquashPass::SingleBranch(Graph* graph) const {
         }
       }
       // remove the dequantize and quantize op
-      GraphSafeRemoveNodes(graph, {dequant, quant, dequant_out, quant_out});
+      if (keep_dequant)
+        GraphSafeRemoveNodes(graph, {quant, quant_out});
+      else
+        GraphSafeRemoveNodes(graph, {dequant, quant, dequant_out, quant_out});
+
       IR_NODE_LINK_TO(int8_out, next_op);
 
       found_squash_count++;
@@ -73,7 +113,11 @@ void CPUQuantizeSquashPass::SingleBranch(Graph* graph) const {
       desc.SetAttr("is_negative_input", is_negative);
 
       auto requant_node = g->CreateOpNode(&desc);  // OpDesc will be copied.
-      GraphSafeRemoveNodes(graph, {dequant, quant, dequant_out});
+
+      if (keep_dequant)
+        GraphSafeRemoveNodes(graph, {quant});
+      else
+        GraphSafeRemoveNodes(graph, {dequant, quant, dequant_out});
 
       IR_NODE_LINK_TO(int8_out, requant_node);
       IR_NODE_LINK_TO(requant_node, quant_out);
@@ -82,6 +126,7 @@ void CPUQuantizeSquashPass::SingleBranch(Graph* graph) const {
     }
   };
   gpd(graph, handler);
+  std::cout << "--  squashed " << found_squash_count << std::endl;
   AddStatis(found_squash_count);
 }
 
@@ -90,7 +135,9 @@ std::unique_ptr<ir::Graph> CPUQuantizeSquashPass::ApplyImpl(
   PADDLE_ENFORCE(graph.get());
   FusePassBase::Init("cpu_quantize_squash_pass", graph.get());
 
-  SingleBranch(graph.get());
+  std::unordered_map<const Node*, int> nodes_keep_counter;
+  FindNodesToKeep(graph.get(), nodes_keep_counter);
+  SingleBranch(graph.get(), nodes_keep_counter);
 
   return graph;
 }

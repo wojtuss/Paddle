@@ -797,6 +797,19 @@ struct DequantQuantRM : public PatternBase {
   PATTERN_DECL_NODE(quant_out);
 };
 
+struct DequantAny : public PatternBase {
+  DequantAny(PDPattern* pattern, const std::string& name_scope)
+      : PatternBase(pattern, name_scope, "dequant_another") {}
+  PDNode* operator()();
+
+  // declare operator node's name
+  PATTERN_DECL_NODE(dequant_op);
+  PATTERN_DECL_NODE(next_op);
+
+  // declare the variable
+  PATTERN_DECL_NODE(dequant_out);
+};
+
 struct TransposeFlattenConcat : public PatternBase {
   TransposeFlattenConcat(PDPattern* pattern, const std::string& name_scope)
       : PatternBase(pattern, name_scope, "transpose_flatten_concat") {}
