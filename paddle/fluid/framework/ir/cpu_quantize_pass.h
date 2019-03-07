@@ -37,8 +37,7 @@ class CPUQuantizePass : public FusePassBase {
   std::unique_ptr<ir::Graph> ApplyImpl(
       std::unique_ptr<ir::Graph> graph) const override;
 
-  void QuantizeConv(Graph* graph, bool with_bias = false,
-                    bool with_res_conn = false) const;
+  void QuantizeConv(Graph* graph, bool with_residual_data = false) const;
 
   void QuantizePool(Graph* graph) const;
 
@@ -50,34 +49,6 @@ class CPUQuantizePass : public FusePassBase {
   void DequantizeOutput(Graph* g, Node* op, Node* output,
                         std::string output_name, std::string prefix,
                         float scale) const;
-
-  void ScaleInput(Node* input, float scale) const;
-
-  void QuantizeInputOutput(
-      const GraphPatternDetector::subgraph_t& subgraph, Graph* g,
-      patterns::Conv conv_pattern, Node* conv_op, std::string prefix,
-      std::pair<QuantMax, LoDTensor> conv_input_scales,
-      std::pair<QuantMax, LoDTensor> conv_output_scales) const;
-
-  void QuantizePoolInputOutput(const GraphPatternDetector::subgraph_t& subgraph,
-                               Graph* g, patterns::Pool pool_pattern,
-                               Node* pool_op) const;
-
-  void QuantizeResidualConn(const GraphPatternDetector::subgraph_t& subgraph,
-                            Graph* g, patterns::Conv conv_pattern,
-                            Node* conv_op, std::string prefix,
-                            PDPattern* base_pattern) const;
-
-  void QuantizeWeights(const GraphPatternDetector::subgraph_t& subgraph,
-                       Graph* g, patterns::Conv conv_pattern, Node* conv_op,
-                       std::string prefix,
-                       std::pair<QuantMax, LoDTensor> conv_filter_scales) const;
-
-  void QuantizeBias(const GraphPatternDetector::subgraph_t& subgraph, Graph* g,
-                    patterns::Conv conv_pattern, Node* conv_op,
-                    std::string prefix,
-                    std::pair<QuantMax, LoDTensor> conv_filter_scales,
-                    std::pair<QuantMax, LoDTensor> conv_input_scales) const;
 
   const std::string name_scope_{"quantize"};
 };
