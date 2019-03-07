@@ -104,6 +104,7 @@ AnalysisConfig::AnalysisConfig(const AnalysisConfig &other) {
   CP_MEMBER(tensorrt_max_batchsize_);
   CP_MEMBER(tensorrt_min_subgraph_size_);
   CP_MEMBER(tensorrt_precision_mode_);
+  CP_MEMBER(trt_use_static_engine_);
   // MKLDNN related.
   CP_MEMBER(use_mkldnn_);
   CP_MEMBER(mkldnn_enabled_op_types_);
@@ -159,7 +160,7 @@ std::shared_ptr<QuantizerConfig> AnalysisConfig::quantizer_config() const {
 
 void AnalysisConfig::EnableTensorRtEngine(
     int workspace_size, int max_batch_size, int min_subgraph_size,
-    AnalysisConfig::Precision precision_mode) {
+    AnalysisConfig::Precision precision_mode, bool use_static) {
 #ifdef PADDLE_WITH_CUDA
   if (!use_gpu()) {
     LOG(ERROR) << "To use TensorRT engine, please call EnableGpu() first";
@@ -171,6 +172,7 @@ void AnalysisConfig::EnableTensorRtEngine(
   tensorrt_max_batchsize_ = max_batch_size;
   tensorrt_min_subgraph_size_ = min_subgraph_size;
   tensorrt_precision_mode_ = precision_mode;
+  trt_use_static_engine_ = use_static;
 
   Update();
 #else
