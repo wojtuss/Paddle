@@ -1323,44 +1323,44 @@ PDNode *patterns::ConvAffineChannel::operator()(
   return ac_out_var;
 }
 
-PDNode *patterns::DequantQuantRM::operator()( 
-         paddle::framework::ir::PDNode *int8_out) {
-    int8_out->assert_is_op_input("dequantize","Input");
-    auto *dequantize = pattern->NewNode(dequantize_repr())
-                               ->assert_is_op("dequantize");
-    auto *quantize = pattern->NewNode(quantize_repr())
-                            ->assert_is_op("quantize");
+PDNode *patterns::DequantQuantRM::operator()() {
+  auto *int8_out = pattern->NewNode(int8_out_repr())
+                       ->AsInput()
+                       ->assert_is_op_input("dequantize", "Input");
 
-    auto *next_op = pattern->NewNode(next_op_repr())
-                           ->assert_is_op()
-                           ->assert_more([&](Node *node){
-                               for(auto *in_op : node->inputs){
-                                  if(in_op->Name().find("quantize")!= std::string::npos){
-                                      return true;
-                                  }
-                               }
-                               return false;
-                             });
+  auto *dequantize =
+      pattern->NewNode(dequantize_repr())->assert_is_op("dequantize");
 
-    auto *dequant_out = pattern->NewNode(dequant_out_repr())
-                               ->AsOutput()
-                               ->assert_is_op_output("dequantize","Output");
+  auto *dequant_out = pattern->NewNode(dequant_out_repr())
+                          ->AsOutput()
+                          ->assert_is_op_output("dequantize", "Output")
+                          ->AsIntermediate();
 
-    auto *quant_out = pattern->NewNode(quant_out_repr())
-                             ->AsOutput()
-                             ->assert_is_op_output("quantize");
-  
-    dequant_out->AsIntermediate()->assert_is_op_input("quantize");
-    quant_out->AsIntermediate();
+  auto *quantize = pattern->NewNode(quantize_repr())->assert_is_op("quantize");
 
-    dequantize->LinksFrom({int8_out}).LinksTo({dequant_out});
-    quantize->LinksFrom({dequant_out}).LinksTo({quant_out});
-    next_op->LinksFrom({quant_out});
+  auto *quant_out = pattern->NewNode(quant_out_repr())
+                        ->AsOutput()
+                        ->assert_is_op_output("quantize")
+                        ->AsIntermediate();
 
-    return quant_out;
-     
+  auto *next_op =
+      pattern->NewNode(next_op_repr())
+          ->assert_is_op()
+          ->assert_more([&](Node *node) {
+            for (auto *in_op : node->inputs) {
+              if (in_op->Name().find("quantize") != std::string::npos) {
+                return true;
+              }
+            }
+            return false;
+          });
+
+  dequantize->LinksFrom({int8_out}).LinksTo({dequant_out});
+  quantize->LinksFrom({dequant_out}).LinksTo({quant_out});
+  next_op->LinksFrom({quant_out});
+
+  return quant_out;
 }
-
 
 // a -> transpose_op(1) -> transpose_out_a -> flatten_op(1) -> flatten_out_a
 // b -> transpose_op(2) -> transpose_out_b -> flatten_op(2) -> flatten_out_b
