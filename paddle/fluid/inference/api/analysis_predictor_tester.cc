@@ -445,7 +445,7 @@ TEST_F(QuantizerTest, max_scaling_factor_chwise) {
   QuantMax quant_max;
   framework::LoDTensor lod_tensor;
 
-  std::tie(quant_max, lod_tensor) = GetMaxCHScalingFactor(var_tensor);
+  std::tie(quant_max, lod_tensor) = GetMaxChScalingFactor(var_tensor);
 
   ASSERT_EQ(quant_max, QuantMax::U8_MAX);
   ASSERT_EQ(lod_tensor.numel(), channels);
