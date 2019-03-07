@@ -130,6 +130,7 @@ void CPUQuantizePass::QuantizeConv(Graph* graph,
     auto conv_input_scale = scales[conv_input->Name()].second.data<float>()[0];
     bool is_input_negative =
         scales[conv_input->Name()].first == QuantMax::S8_MAX;
+    std::cout << "i negative: " << is_input_negative << std::endl;
     auto conv_filter_scale_tensor = scales[conv_filter->Name()].second;
     std::vector<float> conv_filter_scale{
         conv_filter_scale_tensor.data<float>(),
@@ -138,8 +139,12 @@ void CPUQuantizePass::QuantizeConv(Graph* graph,
     auto conv_output_scale =
         scales[conv_output->Name()].second.data<float>()[0];
 
-    QuantizeInput<int8_t>(g, conv_op, conv_input, "Input", prefix,
-                          conv_input_scale, is_input_negative);
+    if (is_input_negative)
+      QuantizeInput<int8_t>(g, conv_op, conv_input, "Input", prefix,
+                            conv_input_scale, is_input_negative);
+    else
+      QuantizeInput<uint8_t>(g, conv_op, conv_input, "Input", prefix,
+                             conv_input_scale, is_input_negative);
     conv_op->Op()->SetAttr("Scale_in", conv_input_scale);
     conv_op->Op()->SetAttr("Scale_weights", conv_filter_scale);
 
@@ -148,14 +153,30 @@ void CPUQuantizePass::QuantizeConv(Graph* graph,
                                 conv_pattern);
       auto conv_res_conn_scale =
           scales[conv_residual_data->Name()].second.data<float>()[0];
+      bool is_res_conn_negative =
+          scales[conv_residual_data->Name()].first == QuantMax::S8_MAX;
 
-      QuantizeInput<int8_t>(g, conv_op, conv_residual_data, "ResidualData",
-                            prefix, conv_res_conn_scale, true);
+      if (is_res_conn_negative)
+        QuantizeInput<int8_t>(g, conv_op, conv_residual_data, "ResidualData",
+                              prefix, conv_res_conn_scale,
+                              is_res_conn_negative);
+      else
+        QuantizeInput<uint8_t>(g, conv_op, conv_residual_data, "ResidualData",
+                               prefix, conv_res_conn_scale,
+                               is_res_conn_negative);
       conv_op->Op()->SetAttr("Scale_in_eltwise", conv_res_conn_scale);
+      std::cout << "res: " << conv_residual_data->Name()
+                << ", negative: " << is_res_conn_negative << std::endl;
     }
 
-    DequantizeOutput<int8_t>(g, conv_op, conv_output, "Output", prefix,
-                             conv_output_scale);
+    bool is_output_negative =
+        scales[conv_output->Name()].first == QuantMax::S8_MAX;
+    if (is_output_negative)
+      DequantizeOutput<int8_t>(g, conv_op, conv_output, "Output", prefix,
+                               conv_output_scale);
+    else
+      DequantizeOutput<uint8_t>(g, conv_op, conv_output, "Output", prefix,
+                                conv_output_scale);
     conv_op->Op()->SetAttr("Scale_out", conv_output_scale);
 
     ++quantize_conv_count;
@@ -200,12 +221,22 @@ void CPUQuantizePass::QuantizePool(Graph* graph) const {
     auto input_scale = scales[pool_input->Name()].second.data<float>()[0];
     bool is_input_negative =
         scales[pool_input->Name()].first == QuantMax::S8_MAX;
+    bool is_output_negative =
+        scales[pool_output->Name()].first == QuantMax::S8_MAX;
 
     std::string prefix{"q_pool"};
-    QuantizeInput<int8_t>(g, pool_op, pool_input, "X", prefix, input_scale,
-                          is_input_negative);
-    DequantizeOutput<int8_t>(g, pool_op, pool_output, "Out", prefix,
-                             input_scale);
+    if (is_input_negative)
+      QuantizeInput<int8_t>(g, pool_op, pool_input, "X", prefix, input_scale,
+                            is_input_negative);
+    else
+      QuantizeInput<uint8_t>(g, pool_op, pool_input, "X", prefix, input_scale,
+                             is_input_negative);
+    if (is_output_negative)
+      DequantizeOutput<int8_t>(g, pool_op, pool_output, "Out", prefix,
+                               input_scale);
+    else
+      DequantizeOutput<uint8_t>(g, pool_op, pool_output, "Out", prefix,
+                                input_scale);
 
     ++quantize_pool_count;
   };

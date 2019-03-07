@@ -1352,6 +1352,129 @@ PDNode *patterns::DequantQuantRM::operator()() {
   return quant_out;
 }
 
+PDNode *patterns::DequantQuantRM0::operator()() {
+  auto *int8_out =
+      pattern->NewNode(int8_out_repr())
+          ->AsInput()
+          ->assert_is_op_input("dequantize", "Input")
+          ->assert_more([&](Node *node) { return node->outputs.size() == 1; });
+
+  auto *dequantize =
+      pattern->NewNode(dequantize_repr())->assert_is_op("dequantize");
+
+  auto *dequant_out = pattern->NewNode(dequant_out_repr())
+                          ->assert_is_op_output("dequantize", "Output");
+
+  auto *quantize = pattern->NewNode(quantize_repr())
+                       ->assert_is_op("quantize")
+                       ->AsIntermediate();
+
+  auto *quant_out = pattern->NewNode(quant_out_repr())
+                        ->assert_is_op_output("quantize")
+                        ->assert_is_op_input("conv2d", "Input");
+
+  auto *next_op = pattern->NewNode(next_op_repr())->assert_is_op("conv2d");
+
+  dequantize->LinksFrom({int8_out}).LinksTo({dequant_out});
+  quantize->LinksFrom({dequant_out}).LinksTo({quant_out});
+  next_op->LinksFrom({quant_out});
+
+  return quant_out;
+}
+
+PDNode *patterns::DequantQuantRM00::operator()() {
+  auto *int8_out =
+      pattern->NewNode(int8_out_repr())
+          ->AsInput()
+          ->assert_is_op_input("dequantize", "Input")
+          ->assert_more([&](Node *node) { return node->outputs.size() == 1; });
+
+  auto *dequantize =
+      pattern->NewNode(dequantize_repr())->assert_is_op("dequantize");
+
+  auto *dequant_out = pattern->NewNode(dequant_out_repr())
+                          ->assert_is_op_output("dequantize", "Output");
+
+  auto *quantize = pattern->NewNode(quantize_repr())
+                       ->assert_is_op("quantize")
+                       ->AsIntermediate();
+
+  auto *quant_out = pattern->NewNode(quant_out_repr())
+                        ->assert_is_op_output("quantize")
+                        ->assert_is_op_input("conv2d", "Input");
+
+  auto *next_op = pattern->NewNode(next_op_repr())->assert_is_op("conv2d");
+
+  dequantize->LinksFrom({int8_out}).LinksTo({dequant_out});
+  quantize->LinksFrom({dequant_out}).LinksTo({quant_out});
+  next_op->LinksFrom({quant_out});
+
+  return quant_out;
+}
+
+PDNode *patterns::DequantQuantRM1::operator()() {
+  auto *int8_out = pattern->NewNode(int8_out_repr())
+                       ->AsInput()
+                       ->assert_is_op_input("dequantize", "Input");
+
+  auto *dequantize = pattern->NewNode(dequantize_repr())
+                         ->assert_is_op("dequantize")
+                         ->AsIntermediate();
+
+  auto *dequant_out =
+      pattern->NewNode(dequant_out_repr())
+          ->assert_is_op_output("dequantize", "Output")
+          ->assert_more([&](Node *node) { return node->outputs.size() == 1; });
+
+  auto *quantize = pattern->NewNode(quantize_repr())
+                       ->assert_is_op("quantize")
+                       ->AsIntermediate();
+
+  auto *quant_out = pattern->NewNode(quant_out_repr())
+                        ->assert_is_op_output("quantize")
+                        ->assert_is_op_input("conv2d", "ResidualData");
+
+  auto *next_op = pattern->NewNode(next_op_repr())->assert_is_op("conv2d");
+
+  dequantize->LinksFrom({int8_out}).LinksTo({dequant_out});
+  quantize->LinksFrom({dequant_out}).LinksTo({quant_out});
+  next_op->LinksFrom({quant_out});
+
+  return quant_out;
+}
+
+PDNode *patterns::DequantQuantRM2::operator()() {
+  auto *int8_out = pattern->NewNode(int8_out_repr())
+                       ->AsInput()
+                       ->assert_is_op_input("dequantize", "Input");
+
+  auto *dequantize =
+      pattern->NewNode(dequantize_repr())->assert_is_op("dequantize");
+
+  auto *dequant_out = pattern->NewNode(dequant_out_repr())
+                          ->assert_is_op_output("dequantize", "Output")
+                          ->assert_is_op_input("quantize", "Input")
+                          ->assert_more([&](Node *node) {
+                            std::cout << "name: " << node->Name() << ", "
+                                      << node->outputs.size() << std::endl;
+                            return node->outputs.size() == 2;
+                          });
+
+  auto *quantize = pattern->NewNode(quantize_repr())->assert_is_op("quantize");
+
+  auto *quant_out = pattern->NewNode(quant_out_repr())
+                        ->assert_is_op_output("quantize")
+                        ->assert_is_op_input("conv2d", "ResidualData");
+
+  auto *next_op = pattern->NewNode(next_op_repr())->assert_is_op("conv2d");
+
+  dequantize->LinksFrom({int8_out}).LinksTo({dequant_out});
+  quantize->LinksFrom({dequant_out}).LinksTo({quant_out});
+  next_op->LinksFrom({quant_out});
+
+  return quant_out;
+}
+
 PDNode *patterns::DequantAny::operator()() {
   auto *dequant_op =
       pattern->NewNode(dequant_op_repr())->assert_is_op("dequantize");

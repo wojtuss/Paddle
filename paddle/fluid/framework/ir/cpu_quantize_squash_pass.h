@@ -36,6 +36,10 @@ class CPUQuantizeSquashPass : public FusePassBase {
       std::unique_ptr<ir::Graph> graph) const override;
   void Squash(Graph* graph,
               std::unordered_map<const Node*, int>& nodes_keep_counter) const;
+  void Squash1(Graph* graph,
+               std::unordered_map<const Node*, int>& nodes_keep_counter) const;
+  void Squash2(Graph* graph,
+               std::unordered_map<const Node*, int>& nodes_keep_counter) const;
   void FindNodesToKeep(
       Graph* graph,
       std::unordered_map<const Node*, int>& nodes_keep_counter) const;
