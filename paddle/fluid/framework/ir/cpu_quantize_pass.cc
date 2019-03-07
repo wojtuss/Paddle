@@ -146,9 +146,12 @@ void CPUQuantizePass::QuantizeConv(Graph* graph,
     if (with_residual_data) {
       GET_IR_NODE_FROM_SUBGRAPH(conv_residual_data, conv_residual_data,
                                 conv_pattern);
-      QuantizeInput<int32_t>(g, conv_op, conv_residual_data, "ResidualData",
-                             prefix, conv_output_scale, true);
-      conv_op->Op()->SetAttr("Scale_in_eltwise", conv_output_scale);
+      auto conv_res_conn_scale =
+          scales[conv_residual_data->Name()].second.data<float>()[0];
+
+      QuantizeInput<int8_t>(g, conv_op, conv_residual_data, "ResidualData",
+                            prefix, conv_res_conn_scale, true);
+      conv_op->Op()->SetAttr("Scale_in_eltwise", conv_res_conn_scale);
     }
 
     DequantizeOutput<int8_t>(g, conv_op, conv_output, "Output", prefix,
