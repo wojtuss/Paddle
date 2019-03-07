@@ -1323,18 +1323,41 @@ PDNode *patterns::ConvAffineChannel::operator()(
   return ac_out_var;
 }
 
-PDNode *patterns::TransposeFlattenConcat::operator()( 
+PDNode *patterns::DequantQuantRM::operator()( 
          paddle::framework::ir::PDNode *int8_out) {
     int8_out->assert_is_op_input("dequantize","Input");
     auto *dequantize = pattern->NewNode(dequantize_repr())
                                ->assert_is_op("dequantize");
     auto *quantize = pattern->NewNode(quantize_repr())
-                            ->assert_is_op("quantize")
-                            ->assert(has the same scale with the dequantize);
+                            ->assert_is_op("quantize");
 
-    auto * dequant_out = pattern->NewNode(dequant_out_repr())
-                                ->assert_is_output("dequantize","Output");
+    auto *next_op = pattern->NewNode(next_op_repr())
+                           ->assert_is_op()
+                           ->assert_more([&](Node *node){
+                               for(auto *in_op : node->inputs){
+                                  if(in_op->Name().find("quantize")!= std::string::npos){
+                                      return true;
+                                  }
+                               }
+                               return false;
+                             });
 
+    auto *dequant_out = pattern->NewNode(dequant_out_repr())
+                               ->AsOutput()
+                               ->assert_is_op_output("dequantize","Output");
+
+    auto *quant_out = pattern->NewNode(quant_out_repr())
+                             ->AsOutput()
+                             ->assert_is_op_output("quantize");
+  
+    dequant_out->AsIntermediate()->assert_is_op_input("quantize");
+    quant_out->AsIntermediate();
+
+    dequantize->LinksFrom({int8_out}).LinksTo({dequant_out});
+    quantize->LinksFrom({dequant_out}).LinksTo({quant_out});
+    next_op->LinksFrom({quant_out});
+
+    return quant_out;
      
 }
 

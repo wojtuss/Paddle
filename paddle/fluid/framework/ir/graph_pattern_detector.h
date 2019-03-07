@@ -789,9 +789,11 @@ struct DequantQuantRM : public PatternBase {
   //declare operator node's name
   PATTERN_DECL_NODE(dequantize);
   PATTERN_DECL_NODE(quantize);
+  PATTERN_DECL_NODE(next_op);
 
   //declare the variable
   PATTERN_DECL_NODE(quant_out);
+  PATTERN_DECL_NODE(dequant_out);
 
   
 };
