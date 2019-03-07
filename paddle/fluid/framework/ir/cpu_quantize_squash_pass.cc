@@ -79,8 +79,7 @@ void CPUQuantizeSquashPass::Squash(
         boost::get<bool>(quant->Op()->GetAttr("is_negative_input"));
     PADDLE_ENFORCE(nodes_keep_counter.find(dequant_out) !=
                    nodes_keep_counter.end());
-    bool keep_dequant = nodes_keep_counter[dequant_out] > 1;
-    nodes_keep_counter[dequant_out] -= 1;
+    bool keep_dequant = nodes_keep_counter[dequant_out]-- > 1;
 
     if (dequant_scale == quant_scale) {
       auto quant_out_var_name = quant_out->Name();
@@ -137,7 +136,7 @@ std::unique_ptr<ir::Graph> CPUQuantizeSquashPass::ApplyImpl(
 
   std::unordered_map<const Node*, int> nodes_keep_counter;
   FindNodesToKeep(graph.get(), nodes_keep_counter);
-  SingleBranch(graph.get(), nodes_keep_counter);
+  Squash(graph.get(), nodes_keep_counter);
 
   return graph;
 }
