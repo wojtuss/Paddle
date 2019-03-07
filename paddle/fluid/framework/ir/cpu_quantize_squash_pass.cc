@@ -75,8 +75,6 @@ void CPUQuantizeSquashPass::Squash(
     auto* next_op_desc = next_op->Op();
     float dequant_scale = boost::get<float>(dequant->Op()->GetAttr("Scale"));
     float quant_scale = boost::get<float>(quant->Op()->GetAttr("Scale"));
-    bool is_negative =
-        boost::get<bool>(quant->Op()->GetAttr("is_negative_input"));
     PADDLE_ENFORCE(nodes_keep_counter.find(dequant_out) !=
                    nodes_keep_counter.end());
     bool keep_dequant = nodes_keep_counter[dequant_out]-- > 1;
@@ -107,9 +105,8 @@ void CPUQuantizeSquashPass::Squash(
       desc.SetType("requantize");
       desc.SetInput("Input", std::vector<std::string>({int8_out->Name()}));
       desc.SetOutput("Output", std::vector<std::string>({quant_out->Name()}));
-      desc.SetAttr("Scale_dequant", dequant_scale);
-      desc.SetAttr("Scale_quant", quant_scale);
-      desc.SetAttr("is_negative_input", is_negative);
+      desc.SetAttr("Scale_in", dequant_scale);
+      desc.SetAttr("Scale_out", quant_scale);
 
       auto requant_node = g->CreateOpNode(&desc);  // OpDesc will be copied.
 
