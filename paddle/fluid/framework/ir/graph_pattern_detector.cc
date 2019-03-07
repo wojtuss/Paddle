@@ -1329,6 +1329,22 @@ PDNode *patterns::ConvAffineChannel::operator()(
   return ac_out_var;
 }
 
+PDNode *patterns::TransposeFlattenConcat::operator()( 
+         paddle::framework::ir::PDNode *int8_out) {
+    int8_out->assert_is_op_input("dequantize","Input");
+    auto *dequantize = pattern->NewNode(dequantize_repr())
+                               ->assert_is_op("dequantize");
+    auto *quantize = pattern->NewNode(quantize_repr())
+                            ->assert_is_op("quantize")
+                            ->assert(has the same scale with the dequantize);
+
+    auto * dequant_out = pattern->NewNode(dequant_out_repr())
+                                ->assert_is_output("dequantize","Output");
+
+     
+}
+
+
 // a -> transpose_op(1) -> transpose_out_a -> flatten_op(1) -> flatten_out_a
 // b -> transpose_op(2) -> transpose_out_b -> flatten_op(2) -> flatten_out_b
 // ...
