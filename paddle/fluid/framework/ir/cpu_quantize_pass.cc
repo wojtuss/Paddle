@@ -22,9 +22,6 @@ namespace paddle {
 namespace framework {
 namespace ir {
 
-using VarQuantMaxAndScale =
-    std::map<std::string, std::pair<QuantMax, LoDTensor>>;
-
 namespace {
 
 void UnlinkNodes(ir::Node* a, ir::Node* b) {

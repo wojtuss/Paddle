@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include <map>
 #include <memory>
 #include <string>
 #include <utility>
@@ -25,6 +26,9 @@
 namespace paddle {
 namespace framework {
 namespace ir {
+
+using VarQuantMaxAndScale =
+    std::map<std::string, std::pair<QuantMax, LoDTensor>>;
 
 /*
  * Quantize all supported operators.
