@@ -36,7 +36,7 @@ void UnlinkNodes(ir::Node* a, ir::Node* b) {
 template <typename OutT>
 void CPUQuantizePass::QuantizeInput(Graph* g, Node* op, Node* input,
                                     std::string input_name, std::string prefix,
-                                    float scale, bool is_negative) const {
+                                    float scale) const {
   // Create quantize output variable
   VarDesc quantize_out_desc(patterns::PDNodeName(prefix + "quantize", "out"));
   quantize_out_desc.SetDataType(framework::ToDataType(typeid(OutT)));
@@ -50,7 +50,7 @@ void CPUQuantizePass::QuantizeInput(Graph* g, Node* op, Node* input,
   q_desc.SetOutput("Output",
                    std::vector<std::string>({quantize_out_node->Name()}));
   q_desc.SetAttr("Scale", scale);
-  q_desc.SetAttr("is_negative_input", is_negative);
+  q_desc.SetAttr("is_negative_input", std::is_signed<OutT>::value);
   auto quantize_op = g->CreateOpNode(&q_desc);  // OpDesc will be copied.
 
   // update op's input
@@ -139,7 +139,7 @@ void CPUQuantizePass::QuantizeConv(Graph* graph,
         scales[conv_output->Name()].second.data<float>()[0];
 
     QuantizeInput<int8_t>(g, conv_op, conv_input, "Input", prefix,
-                          conv_input_scale, is_input_negative);
+                          conv_input_scale);
     conv_op->Op()->SetAttr("Scale_in", conv_input_scale);
     conv_op->Op()->SetAttr("Scale_weights", conv_filter_scale);
 
@@ -150,7 +150,7 @@ void CPUQuantizePass::QuantizeConv(Graph* graph,
           scales[conv_residual_data->Name()].second.data<float>()[0];
 
       QuantizeInput<int8_t>(g, conv_op, conv_residual_data, "ResidualData",
-                            prefix, conv_res_conn_scale, true);
+                            prefix, conv_res_conn_scale);
       conv_op->Op()->SetAttr("Scale_in_eltwise", conv_res_conn_scale);
     }
 
@@ -202,8 +202,7 @@ void CPUQuantizePass::QuantizePool(Graph* graph) const {
         scales[pool_input->Name()].first == QuantMax::S8_MAX;
 
     std::string prefix{"q_pool"};
-    QuantizeInput<int8_t>(g, pool_op, pool_input, "X", prefix, input_scale,
-                          is_input_negative);
+    QuantizeInput<int8_t>(g, pool_op, pool_input, "X", prefix, input_scale);
     DequantizeOutput<int8_t>(g, pool_op, pool_output, "Out", prefix,
                              input_scale);
 
