@@ -269,6 +269,11 @@ class QuantizerTest : public testing::Test {
     return quantizer->GetMaxScalingFactor(var_tensor);
   }
 
+  std::pair<QuantMax, framework::LoDTensor> GetMaxChScalingFactor(
+      const framework::LoDTensor& var_tensor) const {
+    return quantizer->GetMaxChScalingFactor(var_tensor);
+  }
+
   std::pair<QuantMax, framework::LoDTensor> GetKLScalingFactor(
       const framework::LoDTensor& var_tensor) const {
     return quantizer->GetKLScalingFactor(var_tensor);
