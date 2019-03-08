@@ -13,8 +13,9 @@
 // limitations under the License.
 
 #include "paddle/fluid/framework/ir/cpu_quantize_squash_pass.h"
-
 #include <gtest/gtest.h>
+#include "paddle/fluid/framework/naive_executor.h"
+#include "paddle/fluid/platform/place.h"
 
 namespace paddle {
 namespace framework {
@@ -65,6 +66,8 @@ ProgramDesc BuildProgramDesc(bool use_mkldnn, float scale1, float scale2) {
   return prog;
 }
 
+static const std::initializer_list<std::string> variable_names{
+    "a", "b", "c", "d", "e", "f", "g", "h"};
 // a->Conv1->b
 // b->Dequant->c
 //
@@ -77,8 +80,7 @@ ProgramDesc BuildProgramDesc(bool use_mkldnn, float scale1, float scale2) {
 ProgramDesc BuildProgramDesc2(bool use_mkldnn, float scale1, float scale2,
                               float scale3) {
   ProgramDesc prog;
-  for (auto& v : std::initializer_list<std::string>{"a", "b", "c", "d", "e",
-                                                    "f", "g", "h"}) {
+  for (auto& v : variable_names) {
     prog.MutableBlock(0)->Var(v);
   }
 
@@ -96,8 +98,28 @@ ProgramDesc BuildProgramDesc2(bool use_mkldnn, float scale1, float scale2,
   return prog;
 }
 
+void InitTensorHolder(Scope* scope, const paddle::platform::Place& place,
+                      const char* var_name) {
+  auto x = scope->Var(var_name);
+  auto tensor = x->GetMutable<LoDTensor>();
+  tensor->mutable_data(place, proto::VarType::FP32,
+                       ::paddle::memory::Allocator::kDefault, 1);
+}
+
 void MainTest(const ProgramDesc& prog, int removed_nodes_num) {
   std::unique_ptr<ir::Graph> graph(new ir::Graph(prog));
+
+  // Init scope, as it is used in pass
+  auto place = paddle::platform::CPUPlace();
+  NaiveExecutor exe{place};
+  Scope scope;
+  exe.CreateVariables(prog, 0, true, &scope);
+
+  for (auto& v : variable_names) {
+    InitTensorHolder(&scope, place, v.c_str());
+  }
+
+  graph->Set(kParamScopeAttr, new framework::Scope*(&scope));
 
   auto pass = PassRegistry::Instance().Get("cpu_quantize_squash_pass");
 
