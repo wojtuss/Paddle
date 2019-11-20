@@ -12,6 +12,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License. */
 
+#include <stdio.h>
 #include <functional>
 
 #include "paddle/fluid/memory/detail/memory_block.h"
@@ -69,7 +70,13 @@ void MemoryBlock::Desc::UpdateGuards() {
 
 bool MemoryBlock::Desc::CheckGuards() const {
 #ifdef PADDLE_WITH_TESTING
-  return guard_begin == hash(*this, 1) && guard_end == hash(*this, 2);
+  bool res = guard_begin == hash(*this, 1);
+  res = res && guard_end == hash(*this, 2);
+  if (!res) {
+    printf("--- xxx ---\n");
+  }
+  return res;
+// return guard_begin == hash(*this, 1) && guard_end == hash(*this, 2);
 #else
   return true;
 #endif

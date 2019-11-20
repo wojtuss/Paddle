@@ -132,11 +132,11 @@ void AnalysisPredictor::MkldnnQuantizer::CalculateSingleScale(
   auto rule = qconfig_->scale_algo(op_type_name, conn_name);
   if (rule == ScaleAlgo::NONE) return;
 
-  PADDLE_ENFORCE(
-      var_tensor.numel() > 0,
-      "MkldnnQuantizer: LoDTensor of variable %s for quantization of op "
-      "%s of connection %s should not be empty.",
-      var_name, op_type_name, conn_name);
+  // PADDLE_ENFORCE(
+  // var_tensor.numel() > 0,
+  // "MkldnnQuantizer: LoDTensor of variable %s for quantization of op "
+  // "%s of connection %s should not be empty.",
+  // var_name, op_type_name, conn_name);
 
   switch (rule) {
     case ScaleAlgo::MAX:
@@ -198,112 +198,112 @@ std::vector<int> AnalysisPredictor::MkldnnQuantizer::ExpandQuantizedBins(
 std::pair<bool, LoDTensor>
 AnalysisPredictor::MkldnnQuantizer::GetKLScalingFactor(
     const LoDTensor& var_tensor, bool is_unsigned) const {
-  ConstEigenVectorArrayMap eigen_tensor{var_tensor.data<float>(),
-                                        var_tensor.numel(), 1};
-  int precision_hist_num_bins = 2048;
-  float max_val = eigen_tensor.maxCoeff();
-  float min_val = eigen_tensor.minCoeff();
-  bool is_positive = min_val >= 0.0f;
-  if (is_unsigned)
-    PADDLE_ENFORCE(
-        is_positive,
-        "Tensor is claimed to be unsigned, but its min value (%f) is < 0.0",
-        min_val);
+  // ConstEigenVectorArrayMap eigen_tensor{var_tensor.data<float>(),
+  // var_tensor.numel(), 1};
+  // int precision_hist_num_bins = 2048;
+  // float max_val = eigen_tensor.maxCoeff();
+  // float min_val = eigen_tensor.minCoeff();
+  // bool is_positive = min_val >= 0.0f;
+  // if (is_unsigned)
+  // PADDLE_ENFORCE(
+  // is_positive,
+  // "Tensor is claimed to be unsigned, but its min value (%f) is < 0.0",
+  // min_val);
 
-  int num_quantized_bins = 255;
+  // int num_quantized_bins = 255;
 
-  std::vector<int> hist;
-  float bin_width;
-  int starting_iter;
-  int ending_iter = precision_hist_num_bins - 1;
-  if (is_positive) {
-    std::tie(hist, bin_width) =
-        Histogram(var_tensor, min_val, max_val, precision_hist_num_bins);
-    starting_iter = static_cast<int>(ending_iter * 0.7);
-  } else {
-    float th = std::max(std::abs(max_val), std::abs(min_val));
-    std::tie(hist, bin_width) =
-        Histogram(var_tensor, -th, th, precision_hist_num_bins);
-    starting_iter = 0;
-    if (std::abs(max_val) > std::abs(min_val)) {
-      while (starting_iter < ending_iter) {
-        if (hist[starting_iter] == 0) {
-          ++starting_iter;
-          continue;
-        } else {
-          break;
-        }
-      }
-      starting_iter += static_cast<int>((ending_iter - starting_iter) * 0.6);
-    } else {
-      while (ending_iter > 0) {
-        if (hist[ending_iter] == 0) {
-          --ending_iter;
-          continue;
-        } else {
-          break;
-        }
-      }
-      starting_iter = static_cast<int>(0.6 * ending_iter);
-    }
-  }
-  auto P_sum = eigen_tensor.size();
-  int min_kl_divergence = 0;
-  int min_kl_index = 0;
-  bool kl_inited = false;
-  for (int i = starting_iter; i <= ending_iter; i++) {
-    std::vector<int> reference_distr_P(&hist[0], &hist[i]);
-    auto outliers_count =
-        std::accumulate(&hist[i], &hist[precision_hist_num_bins], 0);
-    if (reference_distr_P[i - 1] == 0) {
-      continue;
-    }
-    reference_distr_P[i - 1] += outliers_count;
-    auto reference_distr_bins = reference_distr_P;
-    std::vector<int> candidate_distr_Q(&hist[0], &hist[i]);
-    int num_merged_bins = i / num_quantized_bins;
-    std::vector<int> candidate_distr_Q_quantized(num_quantized_bins, 0);
-    int j_start = 0;
-    int j_end = num_merged_bins;
-    for (int idx = 0; idx < num_quantized_bins; idx++) {
-      candidate_distr_Q_quantized[idx] = std::accumulate(
-          &candidate_distr_Q[j_start], &candidate_distr_Q[j_end], 0);
-      j_start += num_merged_bins;
-      j_end += num_merged_bins;
-      if ((idx + 1) == num_quantized_bins - 1) {
-        j_end = i;
-      }
-    }
-    candidate_distr_Q =
-        ExpandQuantizedBins(candidate_distr_Q_quantized, reference_distr_bins);
-    int Q_sum =
-        std::accumulate(candidate_distr_Q.begin(), candidate_distr_Q.end(), 0);
-    auto kl_divergence =
-        SafeEntropy(reference_distr_P, P_sum, candidate_distr_Q, Q_sum);
-    if (!kl_inited) {
-      min_kl_divergence = kl_divergence;
-      min_kl_index = i;
-      kl_inited = true;
-    } else if (kl_divergence < min_kl_divergence) {
-      min_kl_divergence = kl_divergence;
-      min_kl_index = i;
-    } else {
-    }
-  }
-  if (min_kl_index == 0) {
-    while (starting_iter > 0) {
-      if (hist[starting_iter] == 0) {
-        starting_iter -= 1;
-        continue;
-      } else {
-        break;
-      }
-    }
-    min_kl_index = starting_iter;
-  }
+  // std::vector<int> hist;
+  // float bin_width;
+  // int starting_iter;
+  // int ending_iter = precision_hist_num_bins - 1;
+  // if (is_positive) {
+  // std::tie(hist, bin_width) =
+  // Histogram(var_tensor, min_val, max_val, precision_hist_num_bins);
+  // starting_iter = static_cast<int>(ending_iter * 0.7);
+  // } else {
+  // float th = std::max(std::abs(max_val), std::abs(min_val));
+  // std::tie(hist, bin_width) =
+  // Histogram(var_tensor, -th, th, precision_hist_num_bins);
+  // starting_iter = 0;
+  // if (std::abs(max_val) > std::abs(min_val)) {
+  // while (starting_iter < ending_iter) {
+  // if (hist[starting_iter] == 0) {
+  // ++starting_iter;
+  // continue;
+  // } else {
+  // break;
+  // }
+  // }
+  // starting_iter += static_cast<int>((ending_iter - starting_iter) * 0.6);
+  // } else {
+  // while (ending_iter > 0) {
+  // if (hist[ending_iter] == 0) {
+  // --ending_iter;
+  // continue;
+  // } else {
+  // break;
+  // }
+  // }
+  // starting_iter = static_cast<int>(0.6 * ending_iter);
+  // }
+  // }
+  // auto P_sum = eigen_tensor.size();
+  // int min_kl_divergence = 0;
+  // int min_kl_index = 0;
+  // bool kl_inited = false;
+  // for (int i = starting_iter; i <= ending_iter; i++) {
+  // std::vector<int> reference_distr_P(&hist[0], &hist[i]);
+  // auto outliers_count =
+  // std::accumulate(&hist[i], &hist[precision_hist_num_bins], 0);
+  // if (reference_distr_P[i - 1] == 0) {
+  // continue;
+  // }
+  // reference_distr_P[i - 1] += outliers_count;
+  // auto reference_distr_bins = reference_distr_P;
+  // std::vector<int> candidate_distr_Q(&hist[0], &hist[i]);
+  // int num_merged_bins = i / num_quantized_bins;
+  // std::vector<int> candidate_distr_Q_quantized(num_quantized_bins, 0);
+  // int j_start = 0;
+  // int j_end = num_merged_bins;
+  // for (int idx = 0; idx < num_quantized_bins; idx++) {
+  // candidate_distr_Q_quantized[idx] = std::accumulate(
+  // &candidate_distr_Q[j_start], &candidate_distr_Q[j_end], 0);
+  // j_start += num_merged_bins;
+  // j_end += num_merged_bins;
+  // if ((idx + 1) == num_quantized_bins - 1) {
+  // j_end = i;
+  // }
+  // }
+  // candidate_distr_Q =
+  // ExpandQuantizedBins(candidate_distr_Q_quantized, reference_distr_bins);
+  // int Q_sum =
+  // std::accumulate(candidate_distr_Q.begin(), candidate_distr_Q.end(), 0);
+  // auto kl_divergence =
+  // SafeEntropy(reference_distr_P, P_sum, candidate_distr_Q, Q_sum);
+  // if (!kl_inited) {
+  // min_kl_divergence = kl_divergence;
+  // min_kl_index = i;
+  // kl_inited = true;
+  // } else if (kl_divergence < min_kl_divergence) {
+  // min_kl_divergence = kl_divergence;
+  // min_kl_index = i;
+  // } else {
+  // }
+  // }
+  // if (min_kl_index == 0) {
+  // while (starting_iter > 0) {
+  // if (hist[starting_iter] == 0) {
+  // starting_iter -= 1;
+  // continue;
+  // } else {
+  // break;
+  // }
+  // }
+  // min_kl_index = starting_iter;
+  // }
 
   LoDTensor scale_tensor = CreateScaleTensor();
-  scale_tensor.data<double>()[0] = 1.0 / ((min_kl_index + 0.5) * bin_width);
+  scale_tensor.data<double>()[0] = 1.0;
 
   return std::make_pair(is_unsigned, scale_tensor);
 }
@@ -311,18 +311,18 @@ AnalysisPredictor::MkldnnQuantizer::GetKLScalingFactor(
 std::pair<bool, LoDTensor>
 AnalysisPredictor::MkldnnQuantizer::GetMaxScalingFactor(
     const LoDTensor& var_tensor, bool is_unsigned) const {
-  ConstEigenVectorArrayMap eigen_tensor{var_tensor.data<float>(),
-                                        var_tensor.numel(), 1};
-  float max_abs = eigen_tensor.abs().maxCoeff();
-  float min_val = eigen_tensor.minCoeff();
-  if (is_unsigned)
-    PADDLE_ENFORCE(
-        min_val >= 0.0f,
-        "Tensor is claimed to be unsigned, but its min value (%f) is < 0.0",
-        min_val);
+  // ConstEigenVectorArrayMap eigen_tensor{var_tensor.data<float>(),
+  // var_tensor.numel(), 1};
+  // float max_abs = eigen_tensor.abs().maxCoeff();
+  // float min_val = eigen_tensor.minCoeff();
+  // if (is_unsigned)
+  // PADDLE_ENFORCE(
+  // min_val >= 0.0f,
+  // "Tensor is claimed to be unsigned, but its min value (%f) is < 0.0",
+  // min_val);
 
   LoDTensor scale_tensor = CreateScaleTensor();
-  scale_tensor.data<double>()[0] = 1.0 / max_abs;
+  scale_tensor.data<double>()[0] = 1.0;
 
   return std::make_pair(is_unsigned, scale_tensor);
 }
@@ -332,20 +332,22 @@ AnalysisPredictor::MkldnnQuantizer::GetMaxChScalingFactor(
     const LoDTensor& var_tensor, bool is_unsigned, bool is_transposed) const {
   PADDLE_ENFORCE(var_tensor.dims().size() > 0, "Tensor dimension is empty.");
 
-  ConstEigenVectorArrayMap eigen_tensor{var_tensor.data<float>(),
-                                        var_tensor.numel(), 1};
-  float min_val = eigen_tensor.minCoeff();
-  if (is_unsigned)
-    PADDLE_ENFORCE(
-        min_val >= 0.0f,
-        "Tensor is claimed to be unsigned, but its min value (%f) is < 0.0",
-        min_val);
+  // ConstEigenVectorArrayMap eigen_tensor{var_tensor.data<float>(),
+  // var_tensor.numel(), 1};
+  // float min_val = eigen_tensor.minCoeff();
+  // if (is_unsigned)
+  // PADDLE_ENFORCE(
+  // min_val >= 0.0f,
+  // "Tensor is claimed to be unsigned, but its min value (%f) is < 0.0",
+  // min_val);
 
   auto dims = var_tensor.dims();
   int num_col_dims = is_transposed ? (dims.size() - 1) : dims.size();
   auto flattened_dims = framework::flatten_to_2d(dims, num_col_dims);
-  ConstEigenMatrixArrayMap eigen_tensor_mat{
-      var_tensor.data<float>(), flattened_dims[0], flattened_dims[1]};
+  std::vector<float> ones(flattened_dims[0] * flattened_dims[1]);
+  std::fill(ones.begin(), ones.end(), 1.0);
+  ConstEigenMatrixArrayMap eigen_tensor_mat{ones.data(), flattened_dims[0],
+                                            flattened_dims[1]};
 
   EigenMatrixDoubleArray scales;
   if (is_transposed) {
@@ -424,12 +426,13 @@ void AnalysisPredictor::MkldnnQuantizer::PrepareArgument() const {
 }
 
 bool AnalysisPredictor::MkldnnQuantizer::Quantize() {
-  if (!RunWarmup()) return false;
+  // if (!RunWarmup()) return false;
   if (!CalculateScales()) return false;
   ClearDeviceContext();
   predictor_.PrepareScope(predictor_.scope_);
   predictor_.CreateExecutor();
   if (!RunQuantizePasses()) return false;
+  predictor_.SaveOptimModel("/data/models/Ernie_INT8");
   predictor_.PrepareExecutor();
   predictor_.PrepareFeedFetch();
   return true;
