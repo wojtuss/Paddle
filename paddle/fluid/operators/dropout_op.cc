@@ -85,7 +85,13 @@ class DropoutOpMaker : public framework::OpProtoAndCheckerMaker {
               "dropout_implementation can only be downgrade_in_infer or "
               "upscale_in_train");
         });
-
+    /* int8 parameters */
+    AddAttr<bool>("use_quantizer",
+                  "(bool, default false) "
+                  "Set to true for operators that should be quantized and use "
+                  "int8 kernel. "
+                  "Only used on CPU.")
+        .SetDefault(false);
     AddComment(R"DOC(
 Dropout Operator.
 
@@ -154,7 +160,9 @@ REGISTER_OPERATOR(dropout, ops::DropoutOp, ops::DropoutOpMaker,
 REGISTER_OPERATOR(dropout_grad, ops::DropoutOpGrad);
 REGISTER_OP_CPU_KERNEL(
     dropout, ops::CPUDropoutKernel<paddle::platform::CPUDeviceContext, float>,
-    ops::CPUDropoutKernel<paddle::platform::CPUDeviceContext, double>);
+    ops::CPUDropoutKernel<paddle::platform::CPUDeviceContext, double>,
+    ops::CPUDropoutKernel<paddle::platform::CPUDeviceContext, int8_t>,
+    ops::CPUDropoutKernel<paddle::platform::CPUDeviceContext, uint8_t>);
 REGISTER_OP_CPU_KERNEL(
     dropout_grad,
     ops::DropoutGradKernel<paddle::platform::CPUDeviceContext, float>,

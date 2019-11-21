@@ -528,6 +528,59 @@ void CPUQuantizePass::QuantizeReshape(Graph* graph) const {
   PrettyLogDetail("---    quantized %d reshape ops", quantize_reshape_count);
 }
 
+void CPUQuantizePass::QuantizeDropout(Graph* graph) const {
+  GraphPatternDetector gpd;
+  auto pattern = gpd.mutable_pattern();
+  patterns::Dropout dropout_pattern{pattern, name_scope_};
+  dropout_pattern();
+
+  int quantize_dropout_count = 0;
+  auto handler = [&](const GraphPatternDetector::subgraph_t& subgraph,
+                     Graph* g) {
+    VLOG(4) << "Quantize dropout op";
+    GET_IR_NODE_FROM_SUBGRAPH(dropout_op, dropout_op, dropout_pattern);
+    auto* dropout_op_desc = dropout_op->Op();
+
+    // skip if should not be quantized
+    if (!dropout_op_desc->GetAttrIfExists<bool>("use_quantizer")) {
+      return;
+    }
+    GET_IR_NODE_FROM_SUBGRAPH(prev_op, prev_op, dropout_pattern);
+    GET_IR_NODE_FROM_SUBGRAPH(next_op, next_op, dropout_pattern);
+
+    // skip if prev op is not quantized
+    // in future we should checked if next_op is quantized
+    // dropout INT8 schould be used only between INT8 operators
+    if (!(prev_op->Op()->Type() == "dequantize" ||
+          (prev_op->Op()->GetAttrIfExists<bool>("use_quantizer")))) {
+      return;
+    }
+
+    GET_IR_NODE_FROM_SUBGRAPH(dropout_x, dropout_x, dropout_pattern);
+    GET_IR_NODE_FROM_SUBGRAPH(dropout_out, dropout_out, dropout_pattern);
+
+    // get scales calculated after warmup, they scale variables to MAX=1.0
+    auto scales = Get<VarQuantScale>("quant_var_scales");
+
+    auto input_scale = scales[dropout_x->Name()].second.data<double>()[0];
+    bool is_input_unsigned = scales[dropout_x->Name()].first;
+    QuantizeInput(g, dropout_op, dropout_x, "X", input_scale,
+                  is_input_unsigned);
+
+    auto output_scale = scales[dropout_out->Name()].second.data<double>()[0];
+    bool is_output_unsigned = scales[dropout_out->Name()].first;
+    DequantizeOutput(g, dropout_op, dropout_out, "Out", output_scale,
+                     is_output_unsigned);
+
+    ++quantize_dropout_count;
+  };
+
+  gpd(graph, handler);
+  AddStatis(quantize_dropout_count);
+
+  PrettyLogDetail("---    quantized %d dropout ops", quantize_dropout_count);
+}
+
 void CPUQuantizePass::ApplyImpl(ir::Graph* graph) const {
   VLOG(3) << "Quantizing the graph.";
   PADDLE_ENFORCE(graph);
@@ -543,6 +596,7 @@ void CPUQuantizePass::ApplyImpl(ir::Graph* graph) const {
   QuantizeTranspose(graph);
   QuantizeFc(graph);
   QuantizeReshape(graph);
+  QuantizeDropout(graph);
 }
 
 }  // namespace ir

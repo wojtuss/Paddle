@@ -80,7 +80,8 @@ bool AnalysisPredictor::MkldnnQuantizer::CalculateScales() {
               } else if (op->Type() == "relu") {
                 is_unsigned = true;
               } else if (op->Type() == "transpose2" ||
-                         op->Type() == "reshape2" || op->Type() == "pool2d") {
+                         op->Type() == "reshape2" || op->Type() == "pool2d" ||
+                         op->Type() == "dropout") {
                 auto input_var_name = op->Input("X")[0];
                 PADDLE_ENFORCE(scales_.find(input_var_name) != scales_.end(),
                                "Input scales must be calculated before the "
