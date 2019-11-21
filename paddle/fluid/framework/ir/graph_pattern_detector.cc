@@ -1188,6 +1188,27 @@ PDNode *patterns::Reshape::operator()() {
   return reshape_out;
 }
 
+PDNode *patterns::Dropout::operator()() {
+  auto prev_op = pattern->NewNode(prev_op_repr())->assert_is_op();
+
+  auto dropout_op =
+      pattern->NewNode(dropout_op_repr())->assert_is_op("dropout");
+
+  auto dropout_x = pattern->NewNode(dropout_x_repr())
+                       ->AsInput()
+                       ->assert_is_op_input("dropout", "X");
+  auto dropout_out = pattern->NewNode(dropout_out_repr())
+                         ->AsOutput()
+                         ->assert_is_op_output("dropout", "Out");
+
+  auto next_op = pattern->NewNode(next_op_repr())->assert_is_op();
+
+  prev_op->LinksTo({dropout_x});
+  dropout_op->LinksFrom({dropout_x}).LinksTo({dropout_out});
+  next_op->LinksFrom({dropout_out});
+  return dropout_out;
+}
+
 PDNode *patterns::ConvResidual::operator()(bool with_residual_data) {
   auto conv_op = pattern->NewNode(conv_op_repr())->assert_is_op("conv2d");
 
