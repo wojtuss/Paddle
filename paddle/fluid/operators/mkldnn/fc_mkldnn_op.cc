@@ -341,8 +341,8 @@ class FCPrimitiveFactory {
     auto dims = {weight_dims[1], input_dims[1], input_dims[2]};
 
     auto dst_format = MatchWeightFormat(input->format());
-    auto src_desc = CreateMemDescriptor(dims, MKLDNNMemoryFormat::oiw);
-    auto dst_desc = CreateMemDescriptor(dims, dst_format);
+    auto src_desc = CreateMemDescriptor<float>(dims, MKLDNNMemoryFormat::oiw);
+    auto dst_desc = CreateMemDescriptor<float>(dims, dst_format);
 
     return Reorder(src_desc, dst_desc, weights_->get_data_handle());
   }
