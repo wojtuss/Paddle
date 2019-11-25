@@ -55,7 +55,9 @@ class FCPrimitiveFactory {
     input_ = CreateMemory(src_desc, input);
 
     weights_ = TransposeWeights(weights);
-    if (src_desc.data.ndims == 4) {
+    if (src_desc.data.ndims == 3) {
+      weights_ = CreateThreeDimWeightsMemory(input, weights);
+    } else if (src_desc.data.ndims == 4) {
       weights_ = CreateFourDimWeightsMemory(input, weights);
     }
 
@@ -85,6 +87,8 @@ class FCPrimitiveFactory {
         return format::oIhw8i;
       case format::nchw:
         return format::oihw;
+      case format::ncw:
+        return format::oiw;
       default:
         return format::format_undef;
     }
@@ -178,6 +182,19 @@ class FCPrimitiveFactory {
                                                weights_desc, dst_desc);
 
     return inner_product_forward::primitive_desc(fc_desc, engine_);
+  }
+
+  mkldnn::memory CreateThreeDimWeightsMemory(const Tensor* input,
+                                             const Tensor* weights) {
+    auto input_dims = framework::vectorize<int>(input->dims());
+    auto weight_dims = framework::vectorize<int>(weights->dims());
+    auto dims = {weight_dims[1], input_dims[1], input_dims[2]};
+
+    auto dst_format = MatchWeightFormat(input->format());
+    auto src_desc = CreateMemDescriptor(dims, MKLDNNMemoryFormat::oiw);
+    auto dst_desc = CreateMemDescriptor(dims, dst_format);
+
+    return Reorder(src_desc, dst_desc, weights_->get_data_handle());
   }
 
   mkldnn::memory CreateFourDimWeightsMemory(const Tensor* input,

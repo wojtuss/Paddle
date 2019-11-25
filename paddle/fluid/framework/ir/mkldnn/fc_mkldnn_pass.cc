@@ -55,7 +55,7 @@ void FCMKLDNNPass::ApplyImpl(ir::Graph* graph) const {
 
     OpDesc* desc = fc->Op();
     auto in_size = fc->inputs[0]->Var()->GetShape().size();
-    if (in_size != 2 && in_size != 4) {
+    if (in_size != 2 && in_size != 4 && in_size != 3) {
       VLOG(3) << "Do not enable FC MKL-DNN for dimensions different than 2 & 4";
       return;
     }
