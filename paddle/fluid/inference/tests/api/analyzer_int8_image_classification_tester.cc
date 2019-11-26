@@ -150,6 +150,7 @@ TEST(Analyzer_int8_image_classification, quantization) {
   SetConfig(&q_cfg);
   q_cfg.SwitchIrDebug(true);
   q_cfg.pass_builder()->DeletePass("simplify_with_basic_ops_pass");
+  q_cfg.pass_builder()->AppendPass("fc_mkldnn_pass");
 
   // read data from file and prepare batches with test data
   std::vector<std::vector<PaddleTensor>> input_slots_all;

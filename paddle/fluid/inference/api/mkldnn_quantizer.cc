@@ -103,7 +103,8 @@ bool AnalysisPredictor::MkldnnQuantizer::CalculateScales() {
                 if (scales_.find(input_var_name) != scales_.end()) {
                   scales_[var_name] = scales_[input_var_name];
                   if (!upscale_in_train) {
-                    scales_[var_name].second.data<double>()[0] *= dropout_prob;
+                    scales_[var_name].second.data<double>()[0] *=
+                        (1.0f - dropout_prob);
                   }
                 }
                 compute_scale = false;
