@@ -80,8 +80,7 @@ bool AnalysisPredictor::MkldnnQuantizer::CalculateScales() {
               } else if (op->Type() == "relu") {
                 is_unsigned = true;
               } else if (op->Type() == "transpose2" ||
-                         op->Type() == "reshape2" || op->Type() == "pool2d" ||
-                         op->Type() == "dropout") {
+                         op->Type() == "reshape2" || op->Type() == "pool2d") {
                 auto input_var_name = op->Input("X")[0];
                 PADDLE_ENFORCE(scales_.find(input_var_name) != scales_.end(),
                                "Input scales must be calculated before the "
@@ -90,6 +89,25 @@ bool AnalysisPredictor::MkldnnQuantizer::CalculateScales() {
                   scales_[var_name] = scales_[input_var_name];
                 }
                 compute_scale = false;
+              } else if (op->Type() == "dropout") {
+                auto input_var_name = op->Input("X")[0];
+                PADDLE_ENFORCE(scales_.find(input_var_name) != scales_.end(),
+                               "Input scales must be calculated before the "
+                               "output scales to infer if output is unsigned.");
+                auto dropout_prob =
+                    boost::get<float>(op->GetAttr("dropout_prob"));
+                auto& dropout_implementation = boost::get<std::string>(
+                    op->GetAttr("dropout_implementation"));
+                bool upscale_in_train =
+                    (dropout_implementation == "upscale_in_train");
+                if (scales_.find(input_var_name) != scales_.end()) {
+                  scales_[var_name] = scales_[input_var_name];
+                  if (!upscale_in_train) {
+                    scales_[var_name].second.data<double>()[0] *= dropout_prob;
+                  }
+                }
+                compute_scale = false;
+
               } else if (op->Type() == "concat") {
                 // output of ops with unsigned input must be unsigned
                 is_unsigned = true;
