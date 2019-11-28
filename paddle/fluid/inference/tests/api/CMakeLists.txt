@@ -47,6 +47,18 @@ function(inference_analysis_api_int8_test_run TARGET_NAME test_binary model_dir 
 	     --iterations=2)
 endfunction()
 
+function(gemm_int8_test_build TARGET_NAME filename)
+	inference_analysis_test_build(${TARGET_NAME} SRCS ${filename}
+        EXTRA_DEPS ${INFERENCE_EXTRA_DEPS} benchmark)
+endfunction()
+
+function(gemm_int8_test_run TARGET_NAME test_binary)
+	inference_analysis_test_run(${TARGET_NAME}
+	COMMAND ${test_binary}
+        ARGS --paddle_num_threads=${CPU_NUM_THREADS_ON_CI}
+	     --iterations=1000)
+endfunction()
+
 function(inference_analysis_api_object_dection_int8_test_run TARGET_NAME test_binary model_dir data_path)
 	inference_analysis_test_run(${TARGET_NAME}
 	COMMAND ${test_binary}
