@@ -16,6 +16,9 @@ limitations under the License. */
 #include <iostream>
 #include "paddle/fluid/framework/tensor.h"
 #include "paddle/fluid/inference/tests/api/tester_helper.h"
+#include "paddle/fluid/platform/mkldnn_helper.h"
+
+DEFINE_int32(warmup_iterations, 1, "Number of warmup iterations.");
 
 namespace paddle {
 namespace inference {
@@ -24,9 +27,13 @@ namespace analysis {
 using framework::DataLayout;
 using framework::Tensor;
 using framework::make_ddim;
+using framework::vectorize;
 using platform::MKLDNNDeviceContext;
 using platform::to_void_cast;
 using platform::GetMKLDNNFormat;
+using platform::MKLDNNGetDataType;
+using platform::MKLDNNMemDesc;
+using platform::CPUPlace;
 using mkldnn::memory;
 using mkldnn::inner_product_forward;
 using mkldnn::primitive;
@@ -34,74 +41,88 @@ using mkldnn::stream;
 using mkldnn::prop_kind;
 
 TEST(Gemm_int8_padding, benchmark) {
-  auto input = Tensor(proto::VarType::UINT8);
-  auto input_dims = make_ddim({1, 128, 768});
-  input.mutable_data<uint8_t>(input_dims, platform::CPUPlace);
+  auto dev_ctx = MKLDNNDeviceContext(CPUPlace());
+  auto mkldnn_engine = dev_ctx.GetEngine();
 
-  auto w = Tensor(proto::VarType::INT8);
-  auto w_dims = make_ddim({768, 768});
-  w.mutable_data<int8_t>(w_dims, platform::CPUPlace);
+  auto input = Tensor(framework::proto::VarType::UINT8);
+  // input.set_format(memory::ncw);
+  // auto input_dims = make_ddim({1, 128, 768});
+  input.set_format(memory::nchw);
+  auto input_dims = make_ddim({1, 128, 768, 768});
+  input.mutable_data<uint8_t>(input_dims, CPUPlace());
 
-  auto output = Tensor(proto::VarType::UINT8);
-  auto output_dims = make_ddim({1, 128, 768});
+  auto w = Tensor(framework::proto::VarType::INT8);
+  // w.set_format(memory::oiw);
+  // auto w_dims = make_ddim({128, 128, 768});
+  w.set_format(memory::oihw);
+  auto w_dims = make_ddim({128, 128, 768, 768});
+  w.mutable_data<int8_t>(w_dims, CPUPlace());
+
+  auto output = Tensor(framework::proto::VarType::UINT8);
+  auto output_dims = make_ddim({1, 128});
   output.Resize(output_dims);
-  // output.mutable_data<uint8_t>(output_dims, platform::CPUPlace);
+  // output.mutable_data<uint8_t>(output_dims, CPUPlace());
 
-  std::vector<int> src_tz = paddle::framework::vectorize2int(input->dims());
-  std::vector<int> weights_tz = paddle::framework::vectorize2int(w->dims());
-  std::vector<int> dst_tz = paddle::framework::vectorize2int(output->dims());
+  std::vector<int> fc_src_tz = vectorize<int>(input.dims());
+  std::vector<int> fc_weights_tz = vectorize<int>(w.dims());
+  std::vector<int> fc_dst_tz = vectorize<int>(output.dims());
 
-  auto fc_src_md = platform::MKLDNNMemDesc(
-      fc_src_tz, platform::MKLDNNGetDataType<T>(), input->format());
+  auto fc_src_md =
+      MKLDNNMemDesc(fc_src_tz, MKLDNNGetDataType<uint8_t>(), input.format());
   auto fc_src_memory_pd = memory::primitive_desc(fc_src_md, mkldnn_engine);
   auto fc_src_memory =
-      memory(fc_src_memory_pd, to_void_cast<T>(input->data<T>()));
+      memory(fc_src_memory_pd, to_void_cast<uint8_t>(input.data<uint8_t>()));
 
-  auto fc_weights_md = platform::MKLDNNMemDesc(
-      fc_weights_tz, platform::MKLDNNGetDataType<T>(), w->format());
+  auto fc_weights_md =
+      MKLDNNMemDesc(fc_weights_tz, MKLDNNGetDataType<int8_t>(), w.format());
   auto fc_weights_memory_pd =
       memory::primitive_desc(fc_weights_md, mkldnn_engine);
   auto fc_weights_memory =
-      memory(fc_weights_memory_pd, to_void_cast<T>(w->data<T>()));
+      memory(fc_weights_memory_pd, to_void_cast<int8_t>(w.data<int8_t>()));
 
-  auto fc_dst_md = platform::MKLDNNMemDesc(fc_dst_tz, mkldnn::memory::f32,
-                                           mkldnn::memory::format::any);
+  auto fc_dst_md = MKLDNNMemDesc(fc_dst_tz, mkldnn::memory::f32,
+                                 mkldnn::memory::format::any);
 
-  std::shared_ptr<memory> fc_bias_memory_p;
   std::shared_ptr<inner_product_forward::desc> fc_desc_p;
-  if (bias) {
-    std::vector<int> fc_bias_tz =
-        paddle::framework::vectorize2int(bias->dims());
-    auto fc_bias_md = platform::MKLDNNMemDesc(
-        fc_bias_tz, platform::MKLDNNGetDataType<T>(), bias->format());
-    auto fc_bias_memory_pd = memory::primitive_desc(fc_bias_md, mkldnn_engine);
-    fc_bias_memory_p.reset(
-        new memory(fc_bias_memory_pd, to_void_cast<T>(bias->data<T>())));
-
-    fc_desc_p.reset(new inner_product_forward::desc(
-        prop_kind::forward, fc_src_md, fc_weights_md, fc_bias_md, fc_dst_md));
-  } else {
-    fc_desc_p.reset(new inner_product_forward::desc(
-        prop_kind::forward, fc_src_md, fc_weights_md, fc_dst_md));
-  }
+  fc_desc_p.reset(new inner_product_forward::desc(prop_kind::forward, fc_src_md,
+                                                  fc_weights_md, fc_dst_md));
   auto fc_prim_desc =
       inner_product_forward::primitive_desc(*fc_desc_p, mkldnn_engine);
 
   auto fc_dst_memory_pd = fc_prim_desc.dst_primitive_desc();
   auto fc_dst_memory_sz = fc_dst_memory_pd.get_size();
-  T* output_data = output->mutable_data<T>(ctx.GetPlace(), fc_dst_memory_sz);
+  int32_t* output_data =
+      output.mutable_data<int32_t>(CPUPlace(), fc_dst_memory_sz);
 
-  auto fc_dst_memory = memory(fc_dst_memory_pd, to_void_cast<T>(output_data));
+  auto fc_dst_memory =
+      memory(fc_dst_memory_pd, to_void_cast<int32_t>(output_data));
 
-  auto fc = bias ? inner_product_forward(fc_prim_desc, fc_src_memory,
-                                         fc_weights_memory, *fc_bias_memory_p,
-                                         fc_dst_memory)
-                 : inner_product_forward(fc_prim_desc, fc_src_memory,
-                                         fc_weights_memory, fc_dst_memory);
+  auto fc = inner_product_forward(fc_prim_desc, fc_src_memory,
+                                  fc_weights_memory, fc_dst_memory);
 
-  // push primitive to stream and wait until it's executed
-  //     std::vector<mkldnn::primitive> pipeline{fc};
-  //         stream(stream::kind::eager).submit(pipeline).wait();
+  Timer run_timer;
+  double elapsed_time = 0;
+  double iter_time = 0;
+  std::vector<mkldnn::primitive> pipeline{fc};
+  for (int i = 0; i < FLAGS_warmup_iterations; ++i) {
+    run_timer.tic();
+    stream(stream::kind::eager).submit(pipeline).wait();
+    iter_time = run_timer.toc();
+    LOG(INFO) << "--- Warmup iteration " << i << ", latency: " << iter_time
+              << " ---";
+  }
+  for (int i = 0; i < FLAGS_iterations; ++i) {
+    // push primitive to stream and wait until it's executed
+    run_timer.tic();
+    stream(stream::kind::eager).submit(pipeline).wait();
+    iter_time = run_timer.toc();
+    elapsed_time += iter_time;
+    LOG(INFO) << "--- Iteration " << i << ", latency: " << iter_time << " ---"
+              << std::endl;
+  }
+  auto batch_latency = elapsed_time / FLAGS_iterations;
+  LOG(INFO) << "====== Iterations: " << FLAGS_iterations
+            << ", average latency: " << batch_latency << " ======";
 }
 
 }  // namespace analysis
