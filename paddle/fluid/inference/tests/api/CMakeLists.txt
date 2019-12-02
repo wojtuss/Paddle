@@ -47,16 +47,17 @@ function(inference_analysis_api_int8_test_run TARGET_NAME test_binary model_dir 
 	     --iterations=2)
 endfunction()
 
-function(gemm_int8_test_build TARGET_NAME filename)
+function(mkldnn_gemm_test_build TARGET_NAME filename)
 	inference_analysis_test_build(${TARGET_NAME} SRCS ${filename}
         EXTRA_DEPS ${INFERENCE_EXTRA_DEPS} benchmark)
 endfunction()
 
-function(gemm_int8_test_run TARGET_NAME test_binary)
+function(mkldnn_gemm_test_run TARGET_NAME test_binary)
 	inference_analysis_test_run(${TARGET_NAME}
 	COMMAND ${test_binary}
-	ARGS --paddle_num_threads=${CPU_NUM_THREADS_ON_CI}
-	     --iterations=10)
+	ARGS --num_threads=1
+	     --iterations=10
+	     --warmup_iterations=3)
 endfunction()
 
 function(inference_analysis_api_object_dection_int8_test_run TARGET_NAME test_binary model_dir data_path)
@@ -278,12 +279,12 @@ if(WITH_MKLDNN)
   download_int8_data(${INT8_MOBILENET_SSD_MODEL_DIR} "mobilenet_ssd_int8_model.tar.gz" )
   inference_analysis_api_object_dection_int8_test_run(test_analyzer_int8_mobilenet_ssd ${INT8_OBJ_DETECT_TEST_APP} ${INT8_MOBILENET_SSD_MODEL_DIR} ${PASCALVOC_DATA_PATH})
 
-  ### GEMM INT8 with padding test
+  ### MKL-DNN GEMM with padding benchmark test
 
-  set(GEMM_INT8_TEST_APP "test_gemm_int8")
-  set(GEMM_INT8_TEST_APP_SRC "gemm_int8_tester.cc")
-  gemm_int8_test_build(${GEMM_INT8_TEST_APP} ${GEMM_INT8_TEST_APP_SRC})
-  gemm_int8_test_run(test_gemm_int8_padding ${GEMM_INT8_TEST_APP})
+  set(MKLDNN_GEMM_TEST_APP "test_mkldnn_gemm")
+  set(MKLDNN_GEMM_TEST_APP_SRC "mkldnn_gemm_tester.cc")
+  mkldnn_gemm_test_build(${MKLDNN_GEMM_TEST_APP} ${MKLDNN_GEMM_TEST_APP_SRC})
+  mkldnn_gemm_test_run(test_mkldnn_gemm_padding ${MKLDNN_GEMM_TEST_APP})
 
 endif()
 
