@@ -146,325 +146,111 @@ double create_and_run_inner_product(std::initializer_list<int> dims_in,
   return run(&ip);
 }
 
-TEST(Mkldnn_gemm_4D_uint8, benchmark) {
-  LOG(INFO) << "=== Benchmarking MKL-DNN inner product with channels size 128 "
-               "and input data type uint8_t ===";
-  double latency1, latency2;
+TEST(Mkldnn_gemm, 4D_uint8) {
+  auto input_dims = {1, 128, 768, 768};
+  auto input_format = memory::nhwc;
+  auto weights_dims = {128, 128, 768, 768};
+  auto weights_format = memory::hwio;
+  auto bias_dims = {128};
+  auto bias_format = memory::x;
+  auto output_dims = {1, 128};
 
-  {
-    // auto input_dims = {1, 768, 768, 128};
-    auto input_dims = {1, 128, 768, 768};
-    auto input_format = memory::nhwc;
-    // auto weights_dims = {768, 768, 128, 128};
-    auto weights_dims = {128, 128, 768, 768};
-    auto weights_format = memory::hwio;
-    auto bias_dims = {128};
-    auto bias_format = memory::x;
-    auto output_dims = {1, 128};
-
-    latency1 = create_and_run_inner_product<uint8_t, int8_t, int32_t, int32_t>(
-        input_dims, input_format, weights_dims, weights_format, bias_dims,
-        bias_format, output_dims);
-    EXPECT_GT(latency1, 0);
-    LOG(INFO) << "Iterations: " << FLAGS_iterations
-              << ", average latency without padding: " << latency1;
-  }
-
-  {
-    // auto input_dims = {1, 768, 768, 128 + 4};
-    auto input_dims = {1, 128 + 4, 768, 768};
-    auto input_format = memory::nhwc;
-    // auto weights_dims = {768, 768, 128 + 4, 128 + 4};
-    auto weights_dims = {128 + 4, 128 + 4, 768, 768};
-    auto weights_format = memory::hwio;
-    auto bias_dims = {128 + 4};
-    auto bias_format = memory::x;
-    auto output_dims = {1, 128 + 4};
-
-    latency2 = create_and_run_inner_product<uint8_t, int8_t, int32_t, int32_t>(
-        input_dims, input_format, weights_dims, weights_format, bias_dims,
-        bias_format, output_dims);
-    EXPECT_GT(latency2, 0);
-    LOG(INFO) << "Iterations: " << FLAGS_iterations
-              << ", average latency with padding: " << latency2;
-  }
-
-  LOG(INFO) << "Latency with/without padding ratio: " << latency1 / latency2;
+  double latency =
+      create_and_run_inner_product<uint8_t, int8_t, int32_t, int32_t>(
+          input_dims, input_format, weights_dims, weights_format, bias_dims,
+          bias_format, output_dims);
+  EXPECT_GT(latency, 0);
+  LOG(INFO) << "Iterations: " << FLAGS_iterations
+            << ", average latency: " << latency;
 }
 
-TEST(Mkldnn_gemm_4D_int8, benchmark) {
-  LOG(INFO) << "=== Benchmarking MKL-DNN inner product with channels size 128 "
-               "and input data type int8_t ===";
-  double latency1, latency2;
+TEST(Mkldnn_gemm, 4D_int8) {
+  auto input_dims = {1, 128, 768, 768};
+  auto input_format = memory::nhwc;
+  auto weights_dims = {128, 128, 768, 768};
+  auto weights_format = memory::hwio;
+  auto bias_dims = {128};
+  auto bias_format = memory::x;
+  auto output_dims = {1, 128};
 
-  {
-    // auto input_dims = {1, 768, 768, 128};
-    auto input_dims = {1, 128, 768, 768};
-    auto input_format = memory::nhwc;
-    // auto weights_dims = {768, 768, 128, 128};
-    auto weights_dims = {128, 128, 768, 768};
-    auto weights_format = memory::hwio;
-    auto bias_dims = {128};
-    auto bias_format = memory::x;
-    auto output_dims = {1, 128};
-
-    latency1 = create_and_run_inner_product<int8_t, int8_t, int32_t, int32_t>(
-        input_dims, input_format, weights_dims, weights_format, bias_dims,
-        bias_format, output_dims);
-    EXPECT_GT(latency1, 0);
-    LOG(INFO) << "Iterations: " << FLAGS_iterations
-              << ", average latency without padding: " << latency1;
-  }
-
-  {
-    // auto input_dims = {1, 768, 768, 128 + 4};
-    auto input_dims = {1, 128 + 4, 768, 768};
-    auto input_format = memory::nhwc;
-    // auto weights_dims = {768, 768, 128 + 4, 128 + 4};
-    auto weights_dims = {128 + 4, 128 + 4, 768, 768};
-    auto weights_format = memory::hwio;
-    auto bias_dims = {128 + 4};
-    auto bias_format = memory::x;
-    auto output_dims = {1, 128 + 4};
-
-    latency2 = create_and_run_inner_product<int8_t, int8_t, int32_t, int32_t>(
-        input_dims, input_format, weights_dims, weights_format, bias_dims,
-        bias_format, output_dims);
-    EXPECT_GT(latency2, 0);
-    LOG(INFO) << "Iterations: " << FLAGS_iterations
-              << ", average latency with padding: " << latency2;
-  }
-
-  LOG(INFO) << "Latency with/without padding ratio: " << latency1 / latency2;
+  double latency =
+      create_and_run_inner_product<int8_t, int8_t, int32_t, int32_t>(
+          input_dims, input_format, weights_dims, weights_format, bias_dims,
+          bias_format, output_dims);
+  EXPECT_GT(latency, 0);
+  LOG(INFO) << "Iterations: " << FLAGS_iterations
+            << ", average latency: " << latency;
 }
 
-TEST(Mkldnn_gemm_4D_float, benchmark) {
-  LOG(INFO) << "=== Benchmarking MKL-DNN inner product with channels size 128 "
-               "and input data type float ===";
-  double latency1, latency2;
+TEST(Mkldnn_gemm, 4D_float) {
+  auto input_dims = {1, 128, 768, 768};
+  auto input_format = memory::nchw;
+  auto weights_dims = {128, 128, 768, 768};
+  auto weights_format = memory::oihw;
+  auto bias_dims = {128};
+  auto bias_format = memory::x;
+  auto output_dims = {1, 128};
 
-  {
-    auto input_dims = {1, 128, 768, 768};
-    auto input_format = memory::nchw;
-    auto weights_dims = {128, 128, 768, 768};
-    auto weights_format = memory::oihw;
-    auto bias_dims = {128};
-    auto bias_format = memory::x;
-    auto output_dims = {1, 128};
-
-    latency1 = create_and_run_inner_product<float, float, float, float>(
-        input_dims, input_format, weights_dims, weights_format, bias_dims,
-        bias_format, output_dims);
-    EXPECT_GT(latency1, 0);
-    LOG(INFO) << "Iterations: " << FLAGS_iterations
-              << ", average latency without padding: " << latency1;
-  }
-
-  {
-    auto input_dims = {1, 128 + 4, 768, 768};
-    auto input_format = memory::nchw;
-    auto weights_dims = {128 + 4, 128 + 4, 768, 768};
-    auto weights_format = memory::oihw;
-    auto bias_dims = {128 + 4};
-    auto bias_format = memory::x;
-    auto output_dims = {1, 128 + 4};
-
-    latency2 = create_and_run_inner_product<float, float, float, float>(
-        input_dims, input_format, weights_dims, weights_format, bias_dims,
-        bias_format, output_dims);
-    EXPECT_GT(latency2, 0);
-    LOG(INFO) << "Iterations: " << FLAGS_iterations
-              << ", average latency with padding: " << latency2;
-  }
-
-  LOG(INFO) << "Latency with/without padding ratio: " << latency1 / latency2;
+  double latency = create_and_run_inner_product<float, float, float, float>(
+      input_dims, input_format, weights_dims, weights_format, bias_dims,
+      bias_format, output_dims);
+  EXPECT_GT(latency, 0);
+  LOG(INFO) << "Iterations: " << FLAGS_iterations
+            << ", average latency: " << latency;
 }
 
-TEST(Mkldnn_gemm_3D_uint8, benchmark) {
-  LOG(INFO) << "=== Benchmarking MKL-DNN inner product with channels size 128 "
-               "and 3D input data type uint8_t ===";
-  double latency1, latency2;
+TEST(Mkldnn_gemm, 3D_uint8) {
+  auto input_dims = {1, 128, 768};
+  auto input_format = memory::nwc;
+  auto weights_dims = {128, 128, 768};
+  auto weights_format = memory::wio;
+  auto bias_dims = {128};
+  auto bias_format = memory::x;
+  auto output_dims = {1, 128};
 
-  {
-    // auto input_dims = {1, 768, 128};
-    auto input_dims = {1, 128, 768};
-    auto input_format = memory::nwc;
-    // auto weights_dims = {768, 128, 128};
-    auto weights_dims = {128, 128, 768};
-    auto weights_format = memory::wio;
-    auto bias_dims = {128};
-    auto bias_format = memory::x;
-    auto output_dims = {1, 128};
-
-    latency1 = create_and_run_inner_product<uint8_t, int8_t, int32_t, int32_t>(
-        input_dims, input_format, weights_dims, weights_format, bias_dims,
-        bias_format, output_dims);
-    EXPECT_GT(latency1, 0);
-    LOG(INFO) << "Iterations: " << FLAGS_iterations
-              << ", average latency without padding: " << latency1;
-  }
-
-  {
-    // auto input_dims = {1, 768, 128 + 4};
-    auto input_dims = {1, 128 + 4, 768};
-    auto input_format = memory::nwc;
-    // auto weights_dims = {768, 128 + 4, 128 + 4};
-    auto weights_dims = {128 + 4, 128 + 4, 768};
-    auto weights_format = memory::wio;
-    auto bias_dims = {128 + 4};
-    auto bias_format = memory::x;
-    auto output_dims = {1, 128 + 4};
-
-    latency2 = create_and_run_inner_product<uint8_t, int8_t, int32_t, int32_t>(
-        input_dims, input_format, weights_dims, weights_format, bias_dims,
-        bias_format, output_dims);
-    EXPECT_GT(latency2, 0);
-    LOG(INFO) << "Iterations: " << FLAGS_iterations
-              << ", average latency with padding: " << latency2;
-  }
-
-  LOG(INFO) << "Latency with/without padding ratio: " << latency1 / latency2;
+  double latency =
+      create_and_run_inner_product<uint8_t, int8_t, int32_t, int32_t>(
+          input_dims, input_format, weights_dims, weights_format, bias_dims,
+          bias_format, output_dims);
+  EXPECT_GT(latency, 0);
+  LOG(INFO) << "Iterations: " << FLAGS_iterations
+            << ", average latency: " << latency;
 }
 
-TEST(Mkldnn_gemm_3D_int8, benchmark) {
-  LOG(INFO) << "=== Benchmarking MKL-DNN inner product with channels size 128 "
-               "and 3D input data type int8_t ===";
-  double latency1, latency2;
+TEST(Mkldnn_gemm, 3D_int8) {
+  auto input_dims = {1, 128, 768};
+  auto input_format = memory::nwc;
+  auto weights_dims = {128, 128, 768};
+  auto weights_format = memory::wio;
+  auto bias_dims = {128};
+  auto bias_format = memory::x;
+  auto output_dims = {1, 128};
 
-  {
-    // auto input_dims = {1, 768, 128};
-    auto input_dims = {1, 128, 768};
-    auto input_format = memory::nwc;
-    // auto weights_dims = {768, 128, 128};
-    auto weights_dims = {128, 128, 768};
-    auto weights_format = memory::wio;
-    auto bias_dims = {128};
-    auto bias_format = memory::x;
-    auto output_dims = {1, 128};
-
-    latency1 = create_and_run_inner_product<int8_t, int8_t, int32_t, int32_t>(
-        input_dims, input_format, weights_dims, weights_format, bias_dims,
-        bias_format, output_dims);
-    EXPECT_GT(latency1, 0);
-    LOG(INFO) << "Iterations: " << FLAGS_iterations
-              << ", average latency without padding: " << latency1;
-  }
-
-  {
-    // auto input_dims = {1, 768, 128 + 4};
-    auto input_dims = {1, 128 + 4, 768};
-    auto input_format = memory::nwc;
-    // auto weights_dims = {768, 128 + 4, 128 + 4};
-    auto weights_dims = {128 + 4, 128 + 4, 768};
-    auto weights_format = memory::wio;
-    auto bias_dims = {128 + 4};
-    auto bias_format = memory::x;
-    auto output_dims = {1, 128 + 4};
-
-    latency2 = create_and_run_inner_product<int8_t, int8_t, int32_t, int32_t>(
-        input_dims, input_format, weights_dims, weights_format, bias_dims,
-        bias_format, output_dims);
-    EXPECT_GT(latency2, 0);
-    LOG(INFO) << "Iterations: " << FLAGS_iterations
-              << ", average latency with padding: " << latency2;
-  }
-
-  LOG(INFO) << "Latency with/without padding ratio: " << latency1 / latency2;
+  double latency =
+      create_and_run_inner_product<int8_t, int8_t, int32_t, int32_t>(
+          input_dims, input_format, weights_dims, weights_format, bias_dims,
+          bias_format, output_dims);
+  EXPECT_GT(latency, 0);
+  LOG(INFO) << "Iterations: " << FLAGS_iterations
+            << ", average latency: " << latency;
 }
 
-TEST(Mkldnn_gemm_3D_float, benchmark) {
-  LOG(INFO) << "=== Benchmarking MKL-DNN inner product with channels size 128 "
-               "and 3D input data type float ===";
-  double latency1, latency2;
+TEST(Mkldnn_gemm, 3D_float) {
+  auto input_dims = {1, 128, 768};
+  auto input_format = memory::ncw;
+  auto weights_dims = {128, 128, 768};
+  auto weights_format = memory::oiw;
+  auto bias_dims = {128};
+  auto bias_format = memory::x;
+  auto output_dims = {1, 128};
 
-  {
-    auto input_dims = {1, 128, 768};
-    auto input_format = memory::ncw;
-    auto weights_dims = {128, 128, 768};
-    auto weights_format = memory::oiw;
-    auto bias_dims = {128};
-    auto bias_format = memory::x;
-    auto output_dims = {1, 128};
-
-    latency1 = create_and_run_inner_product<float, float, float, float>(
-        input_dims, input_format, weights_dims, weights_format, bias_dims,
-        bias_format, output_dims);
-    EXPECT_GT(latency1, 0);
-    LOG(INFO) << "Iterations: " << FLAGS_iterations
-              << ", average latency without padding: " << latency1;
-  }
-
-  {
-    auto input_dims = {1, 128 + 4, 768};
-    auto input_format = memory::ncw;
-    auto weights_dims = {128 + 4, 128 + 4, 768};
-    auto weights_format = memory::oiw;
-    auto bias_dims = {128 + 4};
-    auto bias_format = memory::x;
-    auto output_dims = {1, 128 + 4};
-
-    latency2 = create_and_run_inner_product<float, float, float, float>(
-        input_dims, input_format, weights_dims, weights_format, bias_dims,
-        bias_format, output_dims);
-    EXPECT_GT(latency2, 0);
-    LOG(INFO) << "Iterations: " << FLAGS_iterations
-              << ", average latency with padding: " << latency2;
-  }
-
-  LOG(INFO) << "Latency with/without padding ratio: " << latency1 / latency2;
+  double latency = create_and_run_inner_product<float, float, float, float>(
+      input_dims, input_format, weights_dims, weights_format, bias_dims,
+      bias_format, output_dims);
+  EXPECT_GT(latency, 0);
+  LOG(INFO) << "Iterations: " << FLAGS_iterations
+            << ", average latency: " << latency;
 }
-
-/*
- * TEST(Mkldnn_gemm_int8, benchmark) {
- *   LOG(INFO) << "=== Benchmarking MKL-DNN inner product with channels size 128
- * "
- *                "and input data type int8_t ===";
- *
- *   auto input_dims = {1, 128, 768, 768};
- *   auto input_format = memory::nchw;
- *   auto weights_dims = {128, 128, 768, 768};
- *   auto weights_format = memory::oihw;
- *   auto output_dims = {1, 128};
- *
- *   double latency1 = create_and_run_inner_product<int8_t, int8_t, int32_t>(
- *       input_dims, input_format, weights_dims, weights_format, output_dims);
- *   EXPECT_GT(latency1, 0);
- *   LOG(INFO) << "Iterations: " << FLAGS_iterations
- *             << ", average latency without padding: " << latency1;
- *
- *   double latency2 = create_and_run_inner_product<int8_t, int8_t, int32_t>(
- *       input_dims, input_format, weights_dims, weights_format, output_dims);
- *   EXPECT_GT(latency2, 0);
- *   LOG(INFO) << "Iterations: " << FLAGS_iterations
- *             << ", average latency with padding: " << latency2;
- *   LOG(INFO) << "Latency with/without padding ratio: " << latency1 / latency2;
- * }
- *
- * TEST(Mkldnn_gemm_fp32, benchmark) {
- *   LOG(INFO) << "=== Benchmarking MKL-DNN inner product with channels size 128
- * "
- *                "and input data type float ===";
- *
- *   auto input_dims = {1, 128, 768, 768};
- *   auto input_format = memory::nchw;
- *   auto weights_dims = {128, 128, 768, 768};
- *   auto weights_format = memory::oihw;
- *   auto output_dims = {1, 128};
- *
- *   double latency1 = create_and_run_inner_product<float, float, float>(
- *       input_dims, input_format, weights_dims, weights_format, output_dims);
- *   EXPECT_GT(latency1, 0);
- *   LOG(INFO) << "Iterations: " << FLAGS_iterations
- *             << ", average latency without padding: " << latency1;
- *
- *   double latency2 = create_and_run_inner_product<float, float, float>(
- *       input_dims, input_format, weights_dims, weights_format, output_dims);
- *   EXPECT_GT(latency2, 0);
- *   LOG(INFO) << "Iterations: " << FLAGS_iterations
- *             << ", average latency with padding: " << latency2;
- *   LOG(INFO) << "Latency with/without padding ratio: " << latency1 / latency2;
- * }
- */
 
 }  // namespace analysis
 }  // namespace inference
