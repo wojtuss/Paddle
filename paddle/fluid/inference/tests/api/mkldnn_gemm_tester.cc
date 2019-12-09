@@ -127,8 +127,9 @@ double create_and_run_inner_product(std::initializer_list<int> dims_in,
                                  mkldnn::memory::format::any);
 
   std::shared_ptr<inner_product_forward::desc> fc_desc_p;
-  fc_desc_p.reset(new inner_product_forward::desc(
-      prop_kind::forward, fc_src_md, fc_weights_md, fc_b_md, fc_dst_md));
+  fc_desc_p.reset(new inner_product_forward::desc(prop_kind::forward_scoring,
+                                                  fc_src_md, fc_weights_md,
+                                                  fc_b_md, fc_dst_md));
   auto fc_prim_desc =
       inner_product_forward::primitive_desc(*fc_desc_p, mkldnn_engine);
 
@@ -146,14 +147,14 @@ double create_and_run_inner_product(std::initializer_list<int> dims_in,
   return run(&ip);
 }
 
-TEST(Mkldnn_gemm, 4D_uint8) {
-  auto input_dims = {1, 128, 768, 768};
-  auto input_format = memory::nhwc;
-  auto weights_dims = {128, 128, 768, 768};
-  auto weights_format = memory::hwio;
-  auto bias_dims = {128};
+TEST(Mkldnn_gemm, 2D_uint8_nwc) {
+  auto input_dims = {128, 768};
+  auto input_format = memory::nwc;
+  auto weights_dims = {768, 768};
+  auto weights_format = memory::wio;
+  auto bias_dims = {768};
   auto bias_format = memory::x;
-  auto output_dims = {1, 128};
+  auto output_dims = {128, 768};
 
   double latency =
       create_and_run_inner_product<uint8_t, int8_t, int32_t, int32_t>(
@@ -164,17 +165,17 @@ TEST(Mkldnn_gemm, 4D_uint8) {
             << ", average latency: " << latency;
 }
 
-TEST(Mkldnn_gemm, 4D_int8) {
-  auto input_dims = {1, 128, 768, 768};
-  auto input_format = memory::nhwc;
-  auto weights_dims = {128, 128, 768, 768};
-  auto weights_format = memory::hwio;
-  auto bias_dims = {128};
+TEST(Mkldnn_gemm, 2D_uint8_ncw) {
+  auto input_dims = {128, 768};
+  auto input_format = memory::ncw;
+  auto weights_dims = {768, 768};
+  auto weights_format = memory::oiw;
+  auto bias_dims = {768};
   auto bias_format = memory::x;
-  auto output_dims = {1, 128};
+  auto output_dims = {128, 768};
 
   double latency =
-      create_and_run_inner_product<int8_t, int8_t, int32_t, int32_t>(
+      create_and_run_inner_product<uint8_t, int8_t, int32_t, int32_t>(
           input_dims, input_format, weights_dims, weights_format, bias_dims,
           bias_format, output_dims);
   EXPECT_GT(latency, 0);
@@ -182,14 +183,50 @@ TEST(Mkldnn_gemm, 4D_int8) {
             << ", average latency: " << latency;
 }
 
-TEST(Mkldnn_gemm, 4D_float) {
-  auto input_dims = {1, 128, 768, 768};
-  auto input_format = memory::nchw;
-  auto weights_dims = {128, 128, 768, 768};
-  auto weights_format = memory::oihw;
-  auto bias_dims = {128};
+TEST(Mkldnn_gemm, 2D_int8_nwc) {
+  auto input_dims = {128, 768};
+  auto input_format = memory::nwc;
+  auto weights_dims = {768, 768};
+  auto weights_format = memory::wio;
+  auto bias_dims = {768};
   auto bias_format = memory::x;
-  auto output_dims = {1, 128};
+  auto output_dims = {128, 768};
+
+  double latency =
+      create_and_run_inner_product<int8_t, int8_t, int32_t, int8_t>(
+          input_dims, input_format, weights_dims, weights_format, bias_dims,
+          bias_format, output_dims);
+  EXPECT_GT(latency, 0);
+  LOG(INFO) << "Iterations: " << FLAGS_iterations
+            << ", average latency: " << latency;
+}
+
+TEST(Mkldnn_gemm, 2D_int8_ncw) {
+  auto input_dims = {128, 768};
+  auto input_format = memory::ncw;
+  auto weights_dims = {768, 768};
+  auto weights_format = memory::oiw;
+  auto bias_dims = {768};
+  auto bias_format = memory::x;
+  auto output_dims = {128, 768};
+
+  double latency =
+      create_and_run_inner_product<int8_t, int8_t, int32_t, int8_t>(
+          input_dims, input_format, weights_dims, weights_format, bias_dims,
+          bias_format, output_dims);
+  EXPECT_GT(latency, 0);
+  LOG(INFO) << "Iterations: " << FLAGS_iterations
+            << ", average latency: " << latency;
+}
+
+TEST(Mkldnn_gemm, 2D_float) {
+  auto input_dims = {128, 768};
+  auto input_format = memory::ncw;
+  auto weights_dims = {768, 768};
+  auto weights_format = memory::oiw;
+  auto bias_dims = {768};
+  auto bias_format = memory::x;
+  auto output_dims = {128, 768};
 
   double latency = create_and_run_inner_product<float, float, float, float>(
       input_dims, input_format, weights_dims, weights_format, bias_dims,
@@ -199,11 +236,100 @@ TEST(Mkldnn_gemm, 4D_float) {
             << ", average latency: " << latency;
 }
 
-TEST(Mkldnn_gemm, 3D_uint8) {
-  auto input_dims = {1, 128, 768};
+TEST(Mkldnn_gemm, 3D_uint8_nwc) {
+  auto input_dims = {128, 1, 768};
   auto input_format = memory::nwc;
-  auto weights_dims = {128, 128, 768};
+  auto weights_dims = {768, 1, 768};
   auto weights_format = memory::wio;
+  auto bias_dims = {768};
+  auto bias_format = memory::x;
+  auto output_dims = {128, 768};
+
+  double latency =
+      create_and_run_inner_product<uint8_t, int8_t, int32_t, int32_t>(
+          input_dims, input_format, weights_dims, weights_format, bias_dims,
+          bias_format, output_dims);
+  EXPECT_GT(latency, 0);
+  LOG(INFO) << "Iterations: " << FLAGS_iterations
+            << ", average latency: " << latency;
+}
+
+TEST(Mkldnn_gemm, 3D_uint8_ncw) {
+  auto input_dims = {128, 1, 768};
+  auto input_format = memory::ncw;
+  auto weights_dims = {768, 1, 768};
+  auto weights_format = memory::oiw;
+  auto bias_dims = {768};
+  auto bias_format = memory::x;
+  auto output_dims = {128, 768};
+
+  double latency =
+      create_and_run_inner_product<uint8_t, int8_t, int32_t, int32_t>(
+          input_dims, input_format, weights_dims, weights_format, bias_dims,
+          bias_format, output_dims);
+  EXPECT_GT(latency, 0);
+  LOG(INFO) << "Iterations: " << FLAGS_iterations
+            << ", average latency: " << latency;
+}
+
+TEST(Mkldnn_gemm, 3D_int8_nwc) {
+  auto input_dims = {128, 1, 768};
+  auto input_format = memory::nwc;
+  auto weights_dims = {768, 1, 768};
+  auto weights_format = memory::wio;
+  auto bias_dims = {768};
+  auto bias_format = memory::x;
+  auto output_dims = {128, 768};
+
+  double latency =
+      create_and_run_inner_product<int8_t, int8_t, int32_t, int8_t>(
+          input_dims, input_format, weights_dims, weights_format, bias_dims,
+          bias_format, output_dims);
+  EXPECT_GT(latency, 0);
+  LOG(INFO) << "Iterations: " << FLAGS_iterations
+            << ", average latency: " << latency;
+}
+
+TEST(Mkldnn_gemm, 3D_int8_ncw) {
+  auto input_dims = {128, 1, 768};
+  auto input_format = memory::ncw;
+  auto weights_dims = {768, 1, 768};
+  auto weights_format = memory::oiw;
+  auto bias_dims = {768};
+  auto bias_format = memory::x;
+  auto output_dims = {128, 768};
+
+  double latency =
+      create_and_run_inner_product<int8_t, int8_t, int32_t, int8_t>(
+          input_dims, input_format, weights_dims, weights_format, bias_dims,
+          bias_format, output_dims);
+  EXPECT_GT(latency, 0);
+  LOG(INFO) << "Iterations: " << FLAGS_iterations
+            << ", average latency: " << latency;
+}
+
+TEST(Mkldnn_gemm, 3D_float) {
+  auto input_dims = {128, 1, 768};
+  auto input_format = memory::ncw;
+  auto weights_dims = {768, 1, 768};
+  auto weights_format = memory::oiw;
+  auto bias_dims = {768};
+  auto bias_format = memory::x;
+  auto output_dims = {128, 768};
+
+  double latency = create_and_run_inner_product<float, float, float, float>(
+      input_dims, input_format, weights_dims, weights_format, bias_dims,
+      bias_format, output_dims);
+  EXPECT_GT(latency, 0);
+  LOG(INFO) << "Iterations: " << FLAGS_iterations
+            << ", average latency: " << latency;
+}
+
+TEST(Mkldnn_gemm, DISABLED_4D_uint8) {
+  auto input_dims = {1, 128, 768, 768};
+  auto input_format = memory::nhwc;
+  auto weights_dims = {128, 128, 768, 768};
+  auto weights_format = memory::hwio;
   auto bias_dims = {128};
   auto bias_format = memory::x;
   auto output_dims = {1, 128};
@@ -217,11 +343,11 @@ TEST(Mkldnn_gemm, 3D_uint8) {
             << ", average latency: " << latency;
 }
 
-TEST(Mkldnn_gemm, 3D_int8) {
-  auto input_dims = {1, 128, 768};
-  auto input_format = memory::nwc;
-  auto weights_dims = {128, 128, 768};
-  auto weights_format = memory::wio;
+TEST(Mkldnn_gemm, DISABLED_4D_int8) {
+  auto input_dims = {1, 128, 768, 768};
+  auto input_format = memory::nhwc;
+  auto weights_dims = {128, 128, 768, 768};
+  auto weights_format = memory::hwio;
   auto bias_dims = {128};
   auto bias_format = memory::x;
   auto output_dims = {1, 128};
@@ -235,11 +361,11 @@ TEST(Mkldnn_gemm, 3D_int8) {
             << ", average latency: " << latency;
 }
 
-TEST(Mkldnn_gemm, 3D_float) {
-  auto input_dims = {1, 128, 768};
-  auto input_format = memory::ncw;
-  auto weights_dims = {128, 128, 768};
-  auto weights_format = memory::oiw;
+TEST(Mkldnn_gemm, DISABLED_4D_float) {
+  auto input_dims = {1, 128, 768, 768};
+  auto input_format = memory::nchw;
+  auto weights_dims = {128, 128, 768, 768};
+  auto weights_format = memory::oihw;
   auto bias_dims = {128};
   auto bias_format = memory::x;
   auto output_dims = {1, 128};
