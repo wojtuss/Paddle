@@ -22,6 +22,8 @@ limitations under the License. */
 namespace paddle {
 namespace operators {
 
+enum { kMATMUL_DNNL_FP32 = 1, kMATMUL_DNNL_INT8 = 2 };
+
 /**
  * Printing shape information into a string is easy to use.
  */
@@ -384,6 +386,27 @@ class MatMulOp : public framework::OperatorWithKernel {
     context->SetOutputDim("Out", framework::make_ddim(dim_out));
     context->ShareLoD("X", /*->*/ "Out");
   }
+
+ protected:
+  framework::OpKernelType GetExpectedKernelType(
+      const framework::ExecutionContext &ctx) const override {
+    framework::LibraryType library = framework::LibraryType::kPlain;
+    framework::DataLayout layout = framework::DataLayout::kAnyLayout;
+    int customized_type_value =
+        framework::OpKernelType::kDefaultCustomizedTypeValue;
+    auto input_data_type = OperatorWithKernel::IndicateVarDataType(ctx, "X");
+    if (ctx.Attr<bool>("use_mkldnn")) {
+      library = framework::LibraryType::kMKLDNN;
+      layout = framework::DataLayout::kMKLDNN;
+      using framework::proto::VarType;
+      customized_type_value = (input_data_type == VarType::INT8 ||
+                               input_data_type == VarType::UINT8)
+                                  ? kMATMUL_DNNL_INT8
+                                  : kMATMUL_DNNL_FP32;
+    }
+    return framework::OpKernelType(input_data_type, ctx.GetPlace(), layout,
+                                   library, customized_type_value);
+  }
 };
 
 class MatMulOpMaker : public framework::OpProtoAndCheckerMaker {
@@ -405,6 +428,26 @@ class MatMulOpMaker : public framework::OpProtoAndCheckerMaker {
     AddAttr<int>("head_number", "The number of heads of the matrix")
         .SetDefault(1);
 #endif
+    /* int8 parameters */
+    AddAttr<bool>("use_quantizer",
+                  "(bool, default false) "
+                  "Set to true for operators that should be quantized and use "
+                  "int8 kernel. "
+                  "Only used on CPU.")
+        .SetDefault(false);
+    AddAttr<float>("Scale_X",
+                   "(float, default 1.0f), The quantize scale of input X data")
+        .SetDefault(1.0f);
+    AddAttr<float>("Scale_Y",
+                   "(float, default 1.0f), The quantize scale of input Y data")
+        .SetDefault(1.0f);
+    AddAttr<float>("Scale_out",
+                   "(float, default 1.0f), The quantize scale of output data")
+        .SetDefault(1.0f);
+    AddAttr<bool>("force_fp32_output",
+                  "(bool, default false) Force INT8 kernel output FP32, only "
+                  "used in MKL-DNN INT8")
+        .SetDefault(false);
     AddComment(R"DOC(
 MatMul Operator.
 
