@@ -465,15 +465,10 @@ class Qat2Int8MkldnnPass(object):
         return 'NHWC' if self._is_conv_quantized(graph) else 'NCHW'
 
     def _quantize_fp32_graph(self, graph):
-        ir_pass = self._core.get_pass('cpu_quantize_placement_pass')
-        cpp_graph = graph.graph
-        ir_pass.set('quantize_enabled_op_types', self._ops_to_quantize)
-        ir_pass.set('quantize_excluded_op_ids',
-                    self._find_avg_pooling_ids(graph))
-        ir_pass.apply(cpp_graph)
-        if self._debug:
-            graph.draw('.', 'qat_int8_{}'.format(ir_pass.type()),
-                       graph.all_op_nodes())
+        graph = self._apply_pass(
+            graph, 'cpu_quantize_placement_pass',
+            ['quantize_enabled_op_types', 'quantize_excluded_op_ids'],
+            [self._ops_to_quantize, self._find_avg_pooling_ids(graph)])
         graph = self._apply_pass(graph, 'scale_matmul_fuse_pass')
         graph = self._apply_pass(graph,
                                  'reshape_transpose_matmul_mkldnn_fuse_pass')
