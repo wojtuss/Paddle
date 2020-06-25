@@ -25,97 +25,8 @@ namespace paddle {
 namespace framework {
 namespace ir {
 
-#define GET_CONV_BN_NODES(pattern_name)                                      \
-  /* OPERATORS */                                                            \
-  GET_IR_NODE_FROM_SUBGRAPH(conv, conv, pattern_name);                       \
-  GET_IR_NODE_FROM_SUBGRAPH(batch_norm, batch_norm, pattern_name);           \
-  /* CONV inputs */                                                          \
-  GET_IR_NODE_FROM_SUBGRAPH(conv_weight, conv_weight, pattern_name);         \
-  /* CONV outputs */                                                         \
-  GET_IR_NODE_FROM_SUBGRAPH(conv_out, conv_out, pattern_name);               \
-  /* BN inputs */                                                            \
-  GET_IR_NODE_FROM_SUBGRAPH(bn_scale, bn_scale, pattern_name);               \
-  GET_IR_NODE_FROM_SUBGRAPH(bn_bias, bn_bias, pattern_name);                 \
-  GET_IR_NODE_FROM_SUBGRAPH(bn_mean, bn_mean, pattern_name);                 \
-  GET_IR_NODE_FROM_SUBGRAPH(bn_variance, bn_variance, pattern_name);         \
-  /* BN outputs */                                                           \
-  GET_IR_NODE_FROM_SUBGRAPH(bn_out, bn_out, pattern_name); /* Out */         \
-  GET_IR_NODE_FROM_SUBGRAPH(bn_mean_out, bn_mean_out, pattern_name);         \
-  GET_IR_NODE_FROM_SUBGRAPH(bn_variance_out, bn_variance_out, pattern_name); \
-  GET_IR_NODE_FROM_SUBGRAPH(bn_saved_mean, bn_saved_mean, pattern_name);     \
-  GET_IR_NODE_FROM_SUBGRAPH(bn_saved_variance, bn_saved_variance, pattern_name)
-
-void recompute_bias_and_weights(const Scope* scope,
-                                ir::Node* conv_weight,            //
-                                const ir::Node& bn_scale,         //
-                                const LoDTensor& bn_bias_tensor,  //
-                                const ir::Node& bn_mean,          //
-                                const ir::Node& bn_variance,      //
-                                LoDTensor* eltwise_y_in_tensor,   //
-                                float epsilon, const std::string& conv_type) {
-  using EigenVectorArrayMap =
-      Eigen::Map<Eigen::Array<float, Eigen::Dynamic, 1>>;
-  using ConstEigenVectorArrayMap =
-      Eigen::Map<const Eigen::Array<float, Eigen::Dynamic, 1>>;
-  using EigenMatrixArrayMap = Eigen::Map<
-      Eigen::Array<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>;
-
-  // Re-compute bias of conv2d from BN
-  PADDLE_ENFORCE_EQ(eltwise_y_in_tensor->dims(), bn_bias_tensor.dims());
-
-  auto* scale_tensor = scope->FindVar(bn_scale.Name())->GetMutable<LoDTensor>();
-  auto* variance_tensor =
-      scope->FindVar(bn_variance.Name())->GetMutable<LoDTensor>();
-  auto* mean_tensor = scope->FindVar(bn_mean.Name())->GetMutable<LoDTensor>();
-
-  ConstEigenVectorArrayMap scale_array(scale_tensor->data<float>(),
-                                       scale_tensor->numel(), 1);
-  EigenVectorArrayMap variance_array(
-      variance_tensor->mutable_data<float>(platform::CPUPlace()),
-      variance_tensor->numel(), 1);
-  ConstEigenVectorArrayMap mean_array(mean_tensor->data<float>(),
-                                      mean_tensor->numel(), 1);
-  ConstEigenVectorArrayMap bn_bias_array(bn_bias_tensor.data<float>(),
-                                         bn_bias_tensor.numel(), 1);
-
-  // variance will not be used anymore, so make it std_array and then tmp_array
-  variance_array += epsilon;
-  variance_array = variance_array.sqrt();
-  variance_array = scale_array / variance_array;
-
-  EigenVectorArrayMap eltwise_y_in_array(
-      eltwise_y_in_tensor->mutable_data<float>(platform::CPUPlace()),
-      eltwise_y_in_tensor->numel(), 1);
-
-  eltwise_y_in_array =
-      ((eltwise_y_in_array - mean_array) * variance_array) + bn_bias_array;
-
-  // Re-compute weight of conv2d from BN
-  auto* weights = scope->FindVar(conv_weight->Name())->GetMutable<LoDTensor>();
-  auto weights_shape = weights->dims();
-  auto weights_data = weights->mutable_data<float>(platform::CPUPlace());
-
-  // ConvTranspose weights are in IOHW format
-  if (conv_type == "conv2d_transpose") {
-    int kernel_size = weights_shape[2] * weights_shape[3];
-    for (int i = 0; i < weights->numel();) {
-      for (int j = 0; j < weights_shape[1]; ++j) {
-        for (int k = 0; k < kernel_size; ++k, ++i) {
-          weights_data[i] *= variance_array[j];
-        }
-      }
-    }
-  } else {
-    auto weights_shape_2d = flatten_to_2d(weights_shape, 1);
-
-    EigenMatrixArrayMap weights_array_2d(weights_data, weights_shape_2d[0],
-                                         weights_shape_2d[1]);
-
-    weights_array_2d.colwise() *= variance_array;
-  }
-}
-
-void ConvBNFusePass::ApplyImpl(ir::Graph* graph) const {
+void ConvBifBNFusePass::ApplyImpl(ir::Graph* graph) const {
+  VLOG(3) << "Fusing conv+(bn,any,...).";
   PADDLE_ENFORCE(graph);
   FusePassBase::Init(name_scope_, graph);
 
@@ -123,18 +34,14 @@ void ConvBNFusePass::ApplyImpl(ir::Graph* graph) const {
   PADDLE_ENFORCE(scope);
 
   GraphPatternDetector gpd;
-  auto* conv_input =
-      gpd.mutable_pattern()
-          ->NewNode(patterns::PDNodeName(name_scope_, "conv_input"))
-          ->AsInput()
-          ->assert_is_op_input(conv_type(), "Input");
-  patterns::ConvBN conv_bn_pattern(gpd.mutable_pattern(), name_scope_);
-  conv_bn_pattern(conv_input, conv_type(), false /*with_eltwise_add*/);
+  auto mutable_pattern = gpd.mutable_pattern();
+  patterns::ConvBifBN pattern{mutable_pattern, name_scope_};
+  pattern();
 
-  int found_conv_bn_count = 0;
+  int found_pattern_count = 0;
   auto handler = [&](const GraphPatternDetector::subgraph_t& subgraph,
                      Graph* g) {
-    VLOG(4) << "handle " + conv_type() + "BN fuse";
+    VLOG(4) << "handle conv2d+(bn,any,...) fuse";
 
     // conv, batch_norm,
     // conv_weight, conv_out,
