@@ -24,36 +24,15 @@ namespace framework {
 namespace ir {
 
 /*
- * Fuse the Conv and BatchNorm to a ConvBNMKLDNNOp.
+ * Fuse Conv+(BatchNorm,AnyOp,...) into (Conv+BatchNorm,Conv+(AnyOp,...)).
  */
-class ConvBNFusePass : public FusePassBase {
+class ConvBifBNFusePass : public FusePassBase {
  public:
-  virtual ~ConvBNFusePass() {}
-  virtual std::string conv_type() const { return "conv2d"; }
+  virtual ~ConvBifBNFusePass() {}
 
  protected:
   void ApplyImpl(ir::Graph* graph) const override;
-  const std::string name_scope_{"conv_bn_fuse"};
-};
-
-class ConvEltwiseAddBNFusePass : public FusePassBase {
- public:
-  virtual ~ConvEltwiseAddBNFusePass() {}
-  virtual std::string conv_type() const { return "conv2d"; }
-
- protected:
-  void ApplyImpl(ir::Graph* graph) const override;
-  const std::string name_scope_{"conv_eltwiseadd_bn_fuse"};
-};
-
-class ConvTransposeBNFusePass : public ConvBNFusePass {
- public:
-  std::string conv_type() const { return "conv2d_transpose"; }
-};
-
-class ConvTransposeEltwiseAddBNFusePass : public ConvEltwiseAddBNFusePass {
- public:
-  std::string conv_type() const { return "conv2d_transpose"; }
+  const std::string name_scope_{"conv_bif_bn_fuse"};
 };
 
 }  // namespace ir
