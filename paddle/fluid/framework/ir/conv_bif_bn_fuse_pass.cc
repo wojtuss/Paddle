@@ -28,17 +28,6 @@ namespace ir {
 
 using string::PrettyLogDetail;
 
-namespace {
-
-void UnlinkNodes(ir::Node* a, ir::Node* b) {
-  a->outputs.erase(std::remove(a->outputs.begin(), a->outputs.end(), b),
-                   a->outputs.end());
-  b->inputs.erase(std::remove(b->inputs.begin(), b->inputs.end(), a),
-                  b->inputs.end());
-}
-
-}  // namespace
-
 Node* ConvBifBNFusePass::FindOpInputNodeByName(
     const Graph* graph, const Node* op, const std::string& input_name) const {
   auto input_var_names = op->Op()->Input(input_name);
@@ -96,6 +85,13 @@ Node* ConvBifBNFusePass::CopyOpNode(Graph* graph, const Node* op) const {
   op_copy_desc.CopyFrom(*op->Op());
   op_copy_desc.Flush();
   return graph->CreateOpNode(&op_copy_desc);
+}
+
+void ConvBifBNFusePass::UnlinkNodes(Node* a, Node* b) const {
+  a->outputs.erase(std::remove(a->outputs.begin(), a->outputs.end(), b),
+                   a->outputs.end());
+  b->inputs.erase(std::remove(b->inputs.begin(), b->inputs.end(), a),
+                  b->inputs.end());
 }
 
 void ConvBifBNFusePass::ApplyImpl(ir::Graph* graph) const {

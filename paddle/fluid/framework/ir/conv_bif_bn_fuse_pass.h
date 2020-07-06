@@ -40,6 +40,7 @@ class ConvBifBNFusePass : public FusePassBase {
   Node* CopyPersistableNode(Graph* graph, const Node* node) const;
   Node* CopyActivationNode(Graph* graph, const Node* node) const;
   Node* CopyOpNode(Graph* graph, const Node* node) const;
+  void UnlinkNodes(Node* a, Node* b) const;
 };
 
 }  // namespace ir
