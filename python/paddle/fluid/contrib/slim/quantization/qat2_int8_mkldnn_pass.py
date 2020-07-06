@@ -85,8 +85,8 @@ class Qat2Int8MkldnnPass(object):
         graph = self._compute_weight_scales(graph)
         graph = self._update_relu_output_scales(graph)
         graph = self._propagate_scales(graph)
-        graph = self._quantize_fp32_graph(graph)
-        graph = self._optimize_int8_graph(graph)
+        #  graph = self._quantize_fp32_graph(graph)
+        #  graph = self._optimize_int8_graph(graph)
         graph = self._cleanup(graph)
         return graph
 
@@ -342,11 +342,18 @@ class Qat2Int8MkldnnPass(object):
         graph = self._apply_pass(graph, 'conv_elementwise_add_mkldnn_fuse_pass')
         graph = self._apply_pass(graph, 'conv_relu_mkldnn_fuse_pass')
         graph = self._apply_pass(graph, 'conv_relu6_mkldnn_fuse_pass')
-        graph = self._apply_pass(graph, 'fc_fuse_pass',
-                                 ['use_gpu', 'use_fc_padding'], [False, False])
-        if self._is_fc_quantized(graph):
-            graph = self._apply_pass(graph, 'fc_mkldnn_pass')
-        graph = self._apply_pass(graph, 'matmul_transpose_reshape_fuse_pass')
+        graph = self._apply_pass(graph, 'conv_bif_bn_fuse_pass')
+        #  graph = self._apply_pass(graph, 'conv_bn_fuse_pass')
+        #  graph = self._apply_pass(graph, 'conv_eltwiseadd_bn_fuse_pass')
+        #  graph = self._apply_pass(graph, 'conv_bias_mkldnn_fuse_pass')
+        #  graph = self._apply_pass(graph, 'conv_elementwise_add_mkldnn_fuse_pass')
+        #  graph = self._apply_pass(graph, 'conv_relu_mkldnn_fuse_pass')
+        #  graph = self._apply_pass(graph, 'conv_relu6_mkldnn_fuse_pass')
+        #  graph = self._apply_pass(graph, 'fc_fuse_pass',
+        #  ['use_gpu', 'use_fc_padding'], [False, False])
+        #  if self._is_fc_quantized(graph):
+        #  graph = self._apply_pass(graph, 'fc_mkldnn_pass')
+        #  graph = self._apply_pass(graph, 'matmul_transpose_reshape_fuse_pass')
         return graph
 
     def _apply_pass(self, graph, pass_name, attrs=None, attr_values=None):

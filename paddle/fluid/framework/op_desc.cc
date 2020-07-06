@@ -365,6 +365,10 @@ const std::vector<std::string> &OpDesc::Output(const std::string &name) const {
   return it->second;
 }
 
+bool OpDesc::HasInput(const std::string &name) const {
+  return inputs_.find(name) != inputs_.end();
+}
+
 bool OpDesc::HasOutput(const std::string &name) const {
   return outputs_.find(name) != outputs_.end();
 }

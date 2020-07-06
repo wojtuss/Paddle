@@ -20,10 +20,83 @@
 #include "paddle/fluid/framework/lod_tensor.h"
 #include "paddle/fluid/operators/math/cpu_vec.h"
 #include "paddle/fluid/platform/enforce.h"
+#include "paddle/fluid/string/pretty_log.h"
 
 namespace paddle {
 namespace framework {
 namespace ir {
+
+using string::PrettyLogDetail;
+
+namespace {
+
+void UnlinkNodes(ir::Node* a, ir::Node* b) {
+  a->outputs.erase(std::remove(a->outputs.begin(), a->outputs.end(), b),
+                   a->outputs.end());
+  b->inputs.erase(std::remove(b->inputs.begin(), b->inputs.end(), a),
+                  b->inputs.end());
+}
+
+}  // namespace
+
+Node* ConvBifBNFusePass::FindOpInputNodeByName(
+    const Graph* graph, const Node* op, const std::string& input_name) const {
+  auto input_var_names = op->Op()->Input(input_name);
+  PADDLE_ENFORCE_EQ(input_var_names.size(), 1,
+                    platform::errors::InvalidArgument(
+                        "The %s input has more than 1 name (%d).", input_name,
+                        input_var_names.size()));
+  auto input_var_name = input_var_names[0];
+  auto node_iter = std::find_if(op->inputs.begin(), op->inputs.end(),
+                                [&input_var_name](const Node* node) -> bool {
+                                  return node->Name() == input_var_name;
+                                });
+  PADDLE_ENFORCE_NE(
+      node_iter, op->inputs.end(),
+      platform::errors::NotFound("A node named %s not found in the graph.",
+                                 input_var_name));
+  return *node_iter;
+}
+
+Node* ConvBifBNFusePass::CopyPersistableNode(Graph* graph,
+                                             const Node* node) const {
+  PADDLE_ENFORCE_EQ(node->IsVar(), true,
+                    platform::errors::InvalidArgument(
+                        "The node argument must be a variable node."));
+  auto node_tensor = param_scope()->FindVar(node->Name())->Get<LoDTensor>();
+  VarDesc node_copy_desc(
+      patterns::PDNodeName(name_scope_, node->Name() + "_copy"));
+  node_copy_desc.SetShape(vectorize(node_tensor.dims()));
+  node_copy_desc.SetDataType(node_tensor.type());
+  node_copy_desc.SetLoDLevel(node->Var()->GetLoDLevel());
+  node_copy_desc.SetPersistable(true);
+  auto* node_copy = graph->CreateVarNode(&node_copy_desc);
+  auto* node_copy_tensor =
+      param_scope()->Var(node_copy->Name())->GetMutable<LoDTensor>();
+  TensorCopy(node_tensor, platform::CPUPlace(), node_copy_tensor);
+  return node_copy;
+}
+
+Node* ConvBifBNFusePass::CopyActivationNode(Graph* graph,
+                                            const Node* node) const {
+  PADDLE_ENFORCE_EQ(node->IsVar(), true,
+                    platform::errors::InvalidArgument(
+                        "The node argument must be a variable node."));
+  VarDesc node_copy_desc(
+      patterns::PDNodeName(name_scope_, node->Name() + "_copy"));
+  node_copy_desc.SetPersistable(false);
+  return graph->CreateVarNode(&node_copy_desc);
+}
+
+Node* ConvBifBNFusePass::CopyOpNode(Graph* graph, const Node* op) const {
+  PADDLE_ENFORCE_EQ(op->IsOp(), true,
+                    platform::errors::InvalidArgument(
+                        "The node argument must be a operator node."));
+  OpDesc op_copy_desc;
+  op_copy_desc.CopyFrom(*op->Op());
+  op_copy_desc.Flush();
+  return graph->CreateOpNode(&op_copy_desc);
+}
 
 void ConvBifBNFusePass::ApplyImpl(ir::Graph* graph) const {
   VLOG(3) << "Fusing conv+(bn,any,...).";
@@ -38,224 +111,75 @@ void ConvBifBNFusePass::ApplyImpl(ir::Graph* graph) const {
   patterns::ConvBifBN pattern{mutable_pattern, name_scope_};
   pattern();
 
-  int found_pattern_count = 0;
+  int fused_pattern_count = 0;
   auto handler = [&](const GraphPatternDetector::subgraph_t& subgraph,
                      Graph* g) {
     VLOG(4) << "handle conv2d+(bn,any,...) fuse";
 
-    // conv, batch_norm,
-    // conv_weight, conv_out,
-    // bn_scale, bn_bias, bn_mean, bn_variance,
-    // bn_out, bn_mean_out, bn_variance_out, bn_saved_mean,
-    // bn_saved_variance
-    GET_CONV_BN_NODES(conv_bn_pattern);
+    if (fused_pattern_count > 0) return;
 
-    // check if fuse can be done and if MKL-DNN should be used
-    FuseOptions fuse_option = FindFuseOption(*conv, *batch_norm);
-    if (fuse_option == DO_NOT_FUSE) {
-      VLOG(3) << "do not perform " + conv_type() + " bn fuse";
-      return;
+    GET_IR_NODE_FROM_SUBGRAPH(conv_input, conv_input, pattern);
+    GET_IR_NODE_FROM_SUBGRAPH(conv_filter, conv_filter, pattern);
+    GET_IR_NODE_FROM_SUBGRAPH(conv, conv, pattern);
+    GET_IR_NODE_FROM_SUBGRAPH(conv_output, conv_output, pattern);
+    GET_IR_NODE_FROM_SUBGRAPH(bn, bn, pattern);
+
+    auto* conv_copy_filter = CopyPersistableNode(g, conv_filter);
+
+    // Make a copy of the bias, if present
+    bool has_bias =
+        conv->Op()->HasInput("Bias") && conv->Op()->Input("Bias").size() > 0;
+    Node* conv_copy_bias = nullptr;
+    if (has_bias) {
+      auto* conv_bias = FindOpInputNodeByName(g, conv, "Bias");
+      conv_copy_bias = CopyPersistableNode(g, conv_bias);
     }
 
-    // Get batch norm bias
-    auto* bn_bias_tensor =
-        scope->FindVar(bn_bias->Name())->GetMutable<LoDTensor>();
-
-    // Create eltwise_y (conv bias) variable
-    VarDesc eltwise_y_in_desc(
-        patterns::PDNodeName(name_scope_, "eltwise_y_in"));
-    eltwise_y_in_desc.SetShape(framework::vectorize(bn_bias_tensor->dims()));
-    eltwise_y_in_desc.SetDataType(bn_bias_tensor->type());
-    eltwise_y_in_desc.SetLoDLevel(bn_bias->Var()->GetLoDLevel());
-    eltwise_y_in_desc.SetPersistable(true);
-    auto* eltwise_y_in_node = g->CreateVarNode(&eltwise_y_in_desc);
-    auto* eltwise_y_in_tensor =
-        scope->Var(eltwise_y_in_node->Name())->GetMutable<LoDTensor>();
-
-    // Initialize eltwise_y
-    eltwise_y_in_tensor->Resize(bn_bias_tensor->dims());
-    std::fill_n(eltwise_y_in_tensor->mutable_data<float>(platform::CPUPlace()),
-                eltwise_y_in_tensor->numel(), 0.0f);
-
-    // update weights and biases
-    float epsilon =
-        BOOST_GET_CONST(float, batch_norm->Op()->GetAttr("epsilon"));
-    recompute_bias_and_weights(scope, conv_weight, *bn_scale, *bn_bias_tensor,
-                               *bn_mean, *bn_variance, eltwise_y_in_tensor,
-                               epsilon, conv_type());
-
-    // with MKL-DNN fuse conv+bn into conv with bias
-    // without MKL-DNN fuse conv+bn into conv+elementwise_add
-    if (fuse_option == FUSE_MKLDNN) {
-      auto input_names = conv->Op()->InputNames();
-      bool has_bias = std::find(input_names.begin(), input_names.end(),
-                                "Bias") != input_names.end();
-      if (has_bias && conv->Op()->Input("Bias").size() > 0) {
-        // reuse existing conv bias node
-        auto conv_bias_names = conv->Op()->Input("Bias");
-        PADDLE_ENFORCE_EQ(conv_bias_names.size(), 1UL);
-        auto* conv_bias_var = scope->FindVar(conv_bias_names[0]);
-        auto* conv_bias_tensor = conv_bias_var->GetMutable<LoDTensor>();
-        PADDLE_ENFORCE_EQ(conv_bias_tensor->dims(),
-                          eltwise_y_in_tensor->dims());
-
-        auto eigen_conv_bias = EigenVector<float>::From(*conv_bias_tensor);
-        eigen_conv_bias += EigenVector<float>::From(*eltwise_y_in_tensor);
-      } else {
-        // add new conv_bias node
-        conv->Op()->SetInput(
-            "Bias", std::vector<std::string>({eltwise_y_in_node->Name()}));
-        IR_NODE_LINK_TO(eltwise_y_in_node, conv);
-      }
-      conv->Op()->SetOutput("Output",
-                            std::vector<std::string>({bn_out->Name()}));
-      GraphSafeRemoveNodes(
-          graph,
-          {conv_out, bn_scale, bn_bias, bn_mean, bn_variance, batch_norm,
-           bn_mean_out, bn_variance_out, bn_saved_mean, bn_saved_variance});
-
-      IR_NODE_LINK_TO(conv, bn_out);
-      found_conv_bn_count++;
-    } else {  // fuse_option == FUSE_NATIVE
-      // create an elementwise add node.
-      OpDesc desc;
-      desc.SetInput("X", std::vector<std::string>({conv_out->Name()}));
-      desc.SetInput("Y", std::vector<std::string>({eltwise_y_in_node->Name()}));
-      desc.SetOutput("Out", std::vector<std::string>({bn_out->Name()}));
-      desc.SetType("elementwise_add");
-      desc.SetAttr("axis", 1);
-      auto eltwise_op = g->CreateOpNode(&desc);  // OpDesc will be copied.
-
-      GraphSafeRemoveNodes(graph, {bn_scale, bn_bias, bn_mean, bn_variance,
-                                   batch_norm, bn_mean_out, bn_variance_out,
-                                   bn_saved_mean, bn_saved_variance});
-
-      IR_NODE_LINK_TO(conv_out, eltwise_op);
-      IR_NODE_LINK_TO(eltwise_y_in_node, eltwise_op);
-      IR_NODE_LINK_TO(eltwise_op, bn_out);
-      found_conv_bn_count++;
+    // Find a node with residual data, if present
+    bool has_residual_data = conv->Op()->HasInput("ResidualData") &&
+                             conv->Op()->Input("ResidualData").size() > 0;
+    Node* conv_residual_data = nullptr;
+    if (has_residual_data) {
+      conv_residual_data = FindOpInputNodeByName(g, conv, "ResidualData");
     }
+
+    // Create an output for the copied conv op
+    auto* conv_copy_output = CopyActivationNode(g, conv_output);
+
+    // Make a copy of the conv op node
+    auto* conv_copy = CopyOpNode(g, conv);
+
+    // Update the inputs and output
+    conv_copy->Op()->SetInput(
+        "Filter", std::vector<std::string>({conv_copy_filter->Name()}));
+    if (has_bias) {
+      conv_copy->Op()->SetInput(
+          "Bias", std::vector<std::string>({conv_copy_bias->Name()}));
+    }
+    conv_copy->Op()->SetOutput(
+        "Output", std::vector<std::string>({conv_copy_output->Name()}));
+
+    bn->Op()->SetInput("X",
+                       std::vector<std::string>({conv_copy_output->Name()}));
+
+    IR_NODE_LINK_TO(conv_input, conv_copy);
+    IR_NODE_LINK_TO(conv_copy_filter, conv_copy);
+    if (has_bias) IR_NODE_LINK_TO(conv_copy_bias, conv_copy);
+    if (has_residual_data) IR_NODE_LINK_TO(conv_residual_data, conv_copy);
+    IR_NODE_LINK_TO(conv_copy, conv_copy_output);
+    IR_NODE_LINK_TO(conv_copy_output, bn);
+
+    UnlinkNodes(conv_output, bn);
+    fused_pattern_count++;
   };
 
   gpd(graph, handler);
-
-  AddStatis(found_conv_bn_count);
-}
-
-void ConvEltwiseAddBNFusePass::ApplyImpl(ir::Graph* graph) const {
-  PADDLE_ENFORCE(graph);
-  FusePassBase::Init(name_scope_, graph);
-
-  auto* scope = param_scope();
-  PADDLE_ENFORCE(scope);
-
-  GraphPatternDetector gpd;
-  auto* conv_input =
-      gpd.mutable_pattern()
-          ->NewNode(patterns::PDNodeName(name_scope_, "conv_input"))
-          ->AsInput()
-          ->assert_is_op_input(conv_type(), "Input");
-  patterns::ConvBN conv_bn_pattern(gpd.mutable_pattern(), name_scope_);
-  conv_bn_pattern(conv_input, conv_type(), true /*with_eltwise_add*/);
-
-  int found_conv_bn_count = 0;
-  auto handler = [&](const GraphPatternDetector::subgraph_t& subgraph,
-                     Graph* g) {
-    VLOG(4) << "handle " + conv_type() + "BN fuse";
-
-    // conv, batch_norm,
-    // conv_weight, conv_out,
-    // bn_scale, bn_bias, bn_mean, bn_variance,
-    // bn_out, bn_mean_out, bn_variance_out, bn_saved_mean,bn_saved_variance
-    GET_CONV_BN_NODES(conv_bn_pattern);
-    // OPERATORS
-    GET_IR_NODE_FROM_SUBGRAPH(eltwise, eltwise, conv_bn_pattern);
-    // BIAS inputs
-    GET_IR_NODE_FROM_SUBGRAPH(eltwise_y_in, eltwise_y_in, conv_bn_pattern);
-    // BIAS outputs
-    GET_IR_NODE_FROM_SUBGRAPH(eltwise_out, eltwise_out, conv_bn_pattern);
-
-    // Get eltwise_y (conv bias) variable
-    auto* eltwise_y_in_tensor =
-        scope->FindVar(eltwise_y_in->Name())->GetMutable<LoDTensor>();
-
-    // Get batch norm bias
-    auto* bn_bias_tensor =
-        scope->FindVar(bn_bias->Name())->GetMutable<LoDTensor>();
-
-    // update weights and biases
-    float epsilon =
-        BOOST_GET_CONST(float, batch_norm->Op()->GetAttr("epsilon"));
-
-    // if bias is an input to other ops as well then we cannot overwrite it
-    // so we create separate elementwise Y in nodes
-    if (eltwise_y_in->outputs.size() > 1) {
-      // Make a copy of eltwise Y input tensor
-      // Create eltwise_y (conv bias) variable
-      VarDesc eltwise_y_in_desc(patterns::PDNodeName(
-          name_scope_, "eltwise_y_in" + std::to_string(found_conv_bn_count)));
-      eltwise_y_in_desc.SetShape(
-          framework::vectorize(eltwise_y_in_tensor->dims()));
-      eltwise_y_in_desc.SetDataType(eltwise_y_in_tensor->type());
-      eltwise_y_in_desc.SetLoDLevel(eltwise_y_in->Var()->GetLoDLevel());
-      eltwise_y_in_desc.SetPersistable(true);
-      auto* eltwise_y_in_node = g->CreateVarNode(&eltwise_y_in_desc);
-      auto* eltwise_y_in_tensor_ex =
-          scope->Var(eltwise_y_in_node->Name())->GetMutable<LoDTensor>();
-
-      // Initialize eltwise_y
-      TensorCopy(*eltwise_y_in_tensor, platform::CPUPlace(),
-                 eltwise_y_in_tensor_ex);
-
-      recompute_bias_and_weights(scope, conv_weight, *bn_scale, *bn_bias_tensor,
-                                 *bn_mean, *bn_variance, eltwise_y_in_tensor_ex,
-                                 epsilon, conv_type());
-      // Set new var
-      eltwise->Op()->RenameInput(eltwise_y_in->Name(),
-                                 eltwise_y_in_node->Name());
-      // Link new bias node to eltwise
-      IR_NODE_LINK_TO(eltwise_y_in_node, eltwise);
-      // unlink original bias from eltwise_op
-      eltwise_y_in->outputs.erase(
-          std::remove_if(eltwise_y_in->outputs.begin(),
-                         eltwise_y_in->outputs.end(),
-                         [&](Node*& n) {
-                           return n->id() == eltwise->id() ? true : false;
-                         }),
-          eltwise_y_in->outputs.end());
-    } else {
-      recompute_bias_and_weights(scope, conv_weight, *bn_scale, *bn_bias_tensor,
-                                 *bn_mean, *bn_variance, eltwise_y_in_tensor,
-                                 epsilon, conv_type());
-    }
-
-    // Update the elementwise_add node
-    eltwise->Op()->SetAttr("axis", 1);
-    eltwise->Op()->SetOutput("Out", std::vector<std::string>({bn_out->Name()}));
-
-    GraphSafeRemoveNodes(
-        graph,
-        {bn_scale, bn_bias, bn_mean, bn_variance, batch_norm, bn_mean_out,
-         bn_variance_out, bn_saved_mean, bn_saved_variance, eltwise_out});
-
-    IR_NODE_LINK_TO(eltwise, bn_out);
-
-    found_conv_bn_count++;
-  };
-
-  gpd(graph, handler);
-
-  AddStatis(found_conv_bn_count);
+  AddStatis(fused_pattern_count);
+  PrettyLogDetail("---    fused %d ConvBifBN patterns", fused_pattern_count);
 }
 
 }  // namespace ir
 }  // namespace framework
 }  // namespace paddle
 
-REGISTER_PASS(conv_bn_fuse_pass, paddle::framework::ir::ConvBNFusePass);
-REGISTER_PASS(conv_eltwiseadd_bn_fuse_pass,
-              paddle::framework::ir::ConvEltwiseAddBNFusePass);
-REGISTER_PASS(conv_transpose_bn_fuse_pass,
-              paddle::framework::ir::ConvTransposeBNFusePass);
-REGISTER_PASS(conv_transpose_eltwiseadd_bn_fuse_pass,
-              paddle::framework::ir::ConvTransposeEltwiseAddBNFusePass);
+REGISTER_PASS(conv_bif_bn_fuse_pass, paddle::framework::ir::ConvBifBNFusePass);

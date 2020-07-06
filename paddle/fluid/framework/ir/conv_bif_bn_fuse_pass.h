@@ -31,8 +31,15 @@ class ConvBifBNFusePass : public FusePassBase {
   virtual ~ConvBifBNFusePass() {}
 
  protected:
-  void ApplyImpl(ir::Graph* graph) const override;
+  void ApplyImpl(Graph* graph) const override;
   const std::string name_scope_{"conv_bif_bn_fuse"};
+
+ private:
+  Node* FindOpInputNodeByName(const Graph* graph, const Node* op,
+                              const std::string& name) const;
+  Node* CopyPersistableNode(Graph* graph, const Node* node) const;
+  Node* CopyActivationNode(Graph* graph, const Node* node) const;
+  Node* CopyOpNode(Graph* graph, const Node* node) const;
 };
 
 }  // namespace ir
