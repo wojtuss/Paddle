@@ -466,6 +466,7 @@ class ConvMKLDNNOpKernel : public paddle::framework::OpKernel<T> {
 
     auto* input = ctx.Input<Tensor>("Input");
     auto* output = ctx.Output<Tensor>("Output");
+    bool has_bias = ctx.HasInput("Bias");
 
     PADDLE_ENFORCE_EQ(input->layout(), DataLayout::kMKLDNN,
                       platform::errors::InvalidArgument(
@@ -493,15 +494,6 @@ class ConvMKLDNNOpKernel : public paddle::framework::OpKernel<T> {
 
     const T* input_data = input->data<T>();
 
-    auto src_tz = paddle::framework::vectorize(input->dims());
-
-    mkldnn::memory::data_type src_dt =
-        paddle::framework::ToMKLDNNDataType(input->type());
-
-    std::string key = platform::CreateKey(
-        src_tz, src_dt, ctx.InputName("Input") + ctx.InputName("Filter"));
-
-    const std::string key_conv_pd = key + "@conv_pd";
     bool need_s8_to_u8 = false;
     std::shared_ptr<mkldnn::convolution_forward> conv_p;
     std::shared_ptr<mkldnn::memory> src_memory_p;
@@ -520,16 +512,14 @@ class ConvMKLDNNOpKernel : public paddle::framework::OpKernel<T> {
       key_tid = "-t:" + platform::ThreadIDasStr();
     }
 
-    auto prim_key = key + key_tid + "@conv_p";
-    auto dst_key = key + key_tid + "@dst_mem_p";
-    auto src_key = key + key_tid + "@src_mem_p";
-    auto weights_key = key + key_tid + "@weights_mem_p";
-    auto bias_key = key + key_tid + "@bias_mem_p";
-    auto user_src_key = key + key_tid + "@user_src_mem_p";
-    auto user_residual_key = key + key_tid + "@user_residual_data_mem_p";
-    auto src_reorder_key = key + key_tid + "@src_mem_preorder_p";
-    auto residual_reorder_key = key + key_tid + "@residual_data_mem_preorder_p";
-
+    auto weights_key = platform::CreateKey(key_tid, ctx.InputName("Filter"));
+    auto src_tz = paddle::framework::vectorize(input->dims());
+    mkldnn::memory::data_type src_dt =
+        paddle::framework::ToMKLDNNDataType(input->type());
+    auto key_base =
+        platform::CreateKey(key_tid, src_tz, src_dt,
+                            ctx.InputName("Input") + ctx.InputName("Filter"));
+    auto prim_key = key_base + "@conv_p";
     conv_p = std::static_pointer_cast<mkldnn::convolution_forward>(
         dev_ctx.GetBlob(prim_key));
 
@@ -567,7 +557,7 @@ class ConvMKLDNNOpKernel : public paddle::framework::OpKernel<T> {
           platform::errors::Unimplemented(
               "residual fusion does not support force output with fp32"));
 
-      auto* bias = ctx.HasInput("Bias") ? ctx.Input<Tensor>("Bias") : nullptr;
+      auto* bias = has_bias ? ctx.Input<Tensor>("Bias") : nullptr;
 
       if (bias) {
         PADDLE_ENFORCE_EQ(
@@ -677,7 +667,7 @@ class ConvMKLDNNOpKernel : public paddle::framework::OpKernel<T> {
           dst_tz, platform::MKLDNNGetDataType<T_out>(), chosen_memory_format);
 
       handler.reset(
-          new platform::ConvMKLDNNHandler(dev_ctx, mkldnn_engine, key));
+          new platform::ConvMKLDNNHandler(dev_ctx, mkldnn_engine, key_base));
       // create a conv primitive descriptor and save it for usage in backward
       auto propagation = is_test ? mkldnn::prop_kind::forward_scoring
                                  : mkldnn::prop_kind::forward_training;
@@ -700,8 +690,8 @@ class ConvMKLDNNOpKernel : public paddle::framework::OpKernel<T> {
       // create mkldnn memory from input tensors (data/weights)
       user_src_memory_p =
           handler->AcquireSrcMemory(user_src_md, to_void_cast<T>(input_data));
-      auto user_weights_memory_p = handler->AcquireWeightsMemory(
-          user_weights_md, to_void_cast<K>(filter_data));
+      auto user_weights_memory_p = handler->AcquireWeightsMemoryWithKey(
+          user_weights_md, to_void_cast<K>(filter_data), weights_key);
 
       // create reorder primitive if the input format is not the preferred one
       src_memory_p =
@@ -745,14 +735,14 @@ class ConvMKLDNNOpKernel : public paddle::framework::OpKernel<T> {
       }
 
       // create convolution op primitive
-      auto scale_bias_key = key + "@scale_bias";
       conv_p = handler->AcquireConvolution();
       if (bias) {
         const K* bias_data = bias->data<K>();
         auto user_bias_md = platform::MKLDNNMemDesc(
             {bias_tz}, platform::MKLDNNGetDataType<K>(), MKLDNNMemoryFormat::x);
-        auto user_bias_memory_p = handler->AcquireBiasMemory(
-            user_bias_md, to_void_cast<K>(bias_data));
+        auto bias_key = platform::CreateKey(key_tid, ctx.InputName("Bias"));
+        auto user_bias_memory_p = handler->AcquireBiasMemoryWithKey(
+            user_bias_md, to_void_cast<K>(bias_data), bias_key);
         std::shared_ptr<mkldnn::memory> bias_memory_p;
         int mask_reorder = is_multi_channel ? 1 << 0 : 1;
         int count =
@@ -777,6 +767,13 @@ class ConvMKLDNNOpKernel : public paddle::framework::OpKernel<T> {
                                   {MKLDNN_ARG_DST, *dst_memory_p}});
       }
     } else {
+      auto src_key = key_base + "@src_mem_p";
+      auto dst_key = key_base + "@dst_mem_p";
+      auto user_src_key = key_base + "@user_src_mem_p";
+      auto user_residual_key = key_base + "@user_residual_data_mem_p";
+      auto src_reorder_key = key_base + "@src_mem_preorder_p";
+      auto residual_reorder_key = key_base + "@residual_data_mem_preorder_p";
+
       auto src_memory_reorder_p = std::static_pointer_cast<mkldnn::reorder>(
           dev_ctx.GetBlob(src_reorder_key));
       src_memory_p =
@@ -795,12 +792,13 @@ class ConvMKLDNNOpKernel : public paddle::framework::OpKernel<T> {
           dev_ctx.GetBlob(weights_key));
       dst_memory_p =
           std::static_pointer_cast<mkldnn::memory>(dev_ctx.GetBlob(dst_key));
+      const std::string key_conv_pd = prim_key + "@conv_pd";
       conv_pd =
           std::static_pointer_cast<mkldnn::convolution_forward::primitive_desc>(
               dev_ctx.GetBlob(key_conv_pd));
       if (conv_pd) {
         handler.reset(new platform::ConvMKLDNNHandler(conv_pd, dev_ctx,
-                                                      mkldnn_engine, key));
+                                                      mkldnn_engine, key_base));
       }
 
       if (fuse_residual_conn) {
@@ -822,9 +820,12 @@ class ConvMKLDNNOpKernel : public paddle::framework::OpKernel<T> {
         astream.wait();
       }
 
-      auto bias_memory_p =
-          std::static_pointer_cast<mkldnn::memory>(dev_ctx.GetBlob(bias_key));
-
+      std::shared_ptr<mkldnn::memory> bias_memory_p = nullptr;
+      if (has_bias) {
+        auto bias_key = platform::CreateKey(key_tid, ctx.InputName("Bias"));
+        auto bias_memory_p =
+            std::static_pointer_cast<mkldnn::memory>(dev_ctx.GetBlob(bias_key));
+      }
       if (bias_memory_p) {
         conv_p->execute(astream, {{MKLDNN_ARG_SRC, *src_memory_p},
                                   {MKLDNN_ARG_WEIGHTS, *weights_memory_p},
