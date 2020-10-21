@@ -495,7 +495,7 @@ class Quant2Int8MkldnnPass(object):
 
         _compute_var_scales(self._conv_ops, "Filter", axis=1)
         _compute_var_scales(self._fc_ops, "W", axis=0)
-        #  _compute_var_scales(self._gru_ops, "WeightH", axis=0)
+        _compute_var_scales(self._gru_ops, "WeightH", axis=0)
         _compute_gru_weight_scales("WeightX", "WeightH")
         return graph
 
