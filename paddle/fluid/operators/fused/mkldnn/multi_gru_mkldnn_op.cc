@@ -437,7 +437,7 @@ class MultiGRUHandler {
       auto* bias_data = reinterpret_cast<float*>(memory_p->get_data_handle());
 
       int idx = layer * 2 + (dir == R2L);
-      if (biases_[idx]) {
+      if (biases_.size() > 0 && biases_[idx]) {
         const float* user_bias_data =
             biases_[idx]->data<float>();  // Bias in oneDNN is always float
         memcpy(bias_data, user_bias_data, sizeof(float) * 3 * OCs[layer]);
@@ -447,7 +447,7 @@ class MultiGRUHandler {
         memset(bias_data, 0, sizeof(float) * 3 * OCs[layer]);
       }
 
-      if (origin_mode_ == false && biases_[idx]) {
+      if (origin_mode_ == false && biases_.size() && biases_[idx]) {
         for (int64_t i = 0; i < OCs[layer]; ++i) {
           bias_data[i] *= -1;
         }
