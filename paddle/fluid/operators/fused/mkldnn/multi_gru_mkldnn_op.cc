@@ -34,14 +34,18 @@ using platform::to_void_cast;
 using framework::vectorize;
 using Direction = dnnl::rnn_direction;
 
+namespace {
+
+// oneDNN RNN dimensions
+const int64_t D = 1;  // Directions
+const int64_t L = 1;  // Layers (PP supports only 1 stacked layer)
+const int64_t G = 3;  // Number of Gates, 3 for GRU
+
 constexpr Direction L2R = Direction::unidirectional_left2right;
 constexpr Direction R2L = Direction::unidirectional_right2left;
 
-namespace {
-
-std::string dir2str(Direction dir) {
-  return std::to_string(
-      static_cast<std::underlying_type<Direction>::type>(dir));
+constexpr const char* dir2str(Direction dir) {
+  return dir == L2R ? "LR" : "RL";
 }
 
 }  // namespace
@@ -73,10 +77,11 @@ class MultiGRUHandler {
         weights_h_.size(), layers_ * 2,
         platform::errors::InvalidArgument("The number of WeightH inputs does "
                                           "not match the number of layers."));
-    PADDLE_ENFORCE_EQ(
-        biases_.size(), layers_ * 2,
-        platform::errors::InvalidArgument("The number of Bias inputs does "
-                                          "not match the number of layers."));
+    if (biases_.size() > 0)
+      PADDLE_ENFORCE_EQ(
+          biases_.size(), layers_ * 2,
+          platform::errors::InvalidArgument("The number of Bias inputs does "
+                                            "not match the number of layers."));
     // oneDNN kernel has hardcoded activation functions
     PADDLE_ENFORCE_EQ(
         ctx.Attr<std::string>("gate_activation"), "sigmoid",
@@ -87,8 +92,8 @@ class MultiGRUHandler {
         platform::errors::Unimplemented(
             "oneDNN fusion_gru supports only tanh as an activation."));
 
-    N = x_lod_.size() - 1;  // Number of sentences (batches)
-    Ti =                    // Max length of the sentence in a batch
+    N_ = x_lod_.size() - 1;  // Number of sentences (batches)
+    Ti_ =                    // Max length of the sentence in a batch
         [this]() {
           size_t res = 0;
           for (size_t i = 0; i < (x_lod_.size() - 1); ++i) {
@@ -115,13 +120,8 @@ class MultiGRUHandler {
       memory_key_ = CreateKey(unique_name, MKLDNNGetDataType<T>(), "-t:",
                               platform::ThreadIDasStr());
     }
-    key_ = memory_key_ + "T" + std::to_string(Ti);
-    // for (int layer = 0; layer < layers_; ++layer) {
-    // auto key = CreateKey(key_, dir2str(L2R), layer);
-    // wx_keys_[{layer, L2R}] = CreateKey(key, "@wx");
-    // wh_keys_[{layer, L2R}] = CreateKey(key, "@wh");
-    // b_keys_[{layer, L2R}] = CreateKey(key, "@b");
-    // }
+    key_ = memory_key_;
+    key_.append("T").append(std::to_string(Ti_));
 
     // Is it int8 kernel
     const bool is_int8 = std::is_same<T, uint8_t>::value;
@@ -157,8 +157,8 @@ class MultiGRUHandler {
   }
 
   void AcquireGruPrimitiveDescriptor(int layer, Direction dir) {
-    const std::string pd_key =
-        key_ + "@gru_pd" + dir2str(dir) + std::to_string(layer);
+    auto pd_key = key_;
+    pd_key.append("@gru_pd").append(dir2str(dir)).append(std::to_string(layer));
     auto pd = std::static_pointer_cast<dnnl::gru_forward::primitive_desc>(
         dev_ctx_.GetBlob(pd_key));
     if (pd == nullptr) {
@@ -167,9 +167,9 @@ class MultiGRUHandler {
       const auto weights_dt =
           is_int8 ? dnnl::memory::data_type::s8 : dnnl::memory::data_type::f32;
 
-      auto x_md = MKLDNNMemDesc({Ti, N, ICs[layer]}, MKLDNNGetDataType<T>(),
+      auto x_md = MKLDNNMemDesc({Ti_, N_, ICs[layer]}, MKLDNNGetDataType<T>(),
                                 MKLDNNMemoryFormat::ntc);
-      auto h0_md = MKLDNNMemDesc({L, D, N, OCs[layer]}, MKLDNNGetDataType<T>(),
+      auto h0_md = MKLDNNMemDesc({L, D, N_, OCs[layer]}, MKLDNNGetDataType<T>(),
                                  MKLDNNMemoryFormat::ldnc);
       auto wx_md = MKLDNNMemDesc({L, D, ICs[layer], G, OCs[layer]}, weights_dt,
                                  MKLDNNMemoryFormat::any);
@@ -179,7 +179,7 @@ class MultiGRUHandler {
           MKLDNNMemDesc({L, D, G, OCs[layer]}, MKLDNNGetDataType<float>(),
                         MKLDNNMemoryFormat::ldgo);
       auto h_md =
-          MKLDNNMemDesc({Ti, N, OCs[layer]},
+          MKLDNNMemDesc({Ti_, N_, OCs[layer]},
                         (layer == layers_ - 1) ? MKLDNNGetDataType<T_out>()
                                                : MKLDNNGetDataType<T>(),
                         MKLDNNMemoryFormat::ntc);
@@ -198,13 +198,14 @@ class MultiGRUHandler {
   }
 
   void AcquireConcatPrimitiveDescriptor(int layer) {
-    const std::string pd_key = key_ + "@c_pd" + std::to_string(layer);
+    auto pd_key = key_;
+    pd_key.append("@c_pd").append(std::to_string(layer));
     auto pd = std::static_pointer_cast<dnnl::concat::primitive_desc>(
         dev_ctx_.GetBlob(pd_key));
     if (pd == nullptr) {
       const int axis = 2;
       auto in_md =
-          MKLDNNMemDesc({Ti, N, OCs[layer]},
+          MKLDNNMemDesc({Ti_, N_, OCs[layer]},
                         (layer == layers_ - 1) ? MKLDNNGetDataType<T_out>()
                                                : MKLDNNGetDataType<T>(),
                         MKLDNNMemoryFormat::ntc);
@@ -218,7 +219,8 @@ class MultiGRUHandler {
   }
 
   std::shared_ptr<dnnl::memory> AcquireInputMemoryWithReorder() {
-    const auto key = key_ + "@x_mem";
+    auto key = key_;
+    key.append("@x_m");
     auto memory_p =
         std::static_pointer_cast<dnnl::memory>(dev_ctx_.GetBlob(key));
 
@@ -231,7 +233,7 @@ class MultiGRUHandler {
     auto* x_data = to_void_cast(x_->data<T>());
 
     auto* x_onednn_data = memory_p->get_data_handle();
-    memset(x_onednn_data, 0, sizeof(T) * N * Ti * ICs[0]);
+    memset(x_onednn_data, 0, sizeof(T) * N_ * Ti_ * ICs[0]);
 
     if (platform::GetMKLDNNFormat(gru_pds_[{0, L2R}]->src_desc()) ==
         dnnl::memory::format_tag::ntc) {
@@ -247,10 +249,10 @@ class MultiGRUHandler {
                       std::vector<size_t> lod, int layer, Direction dir) {
     auto* input_data_iter = reinterpret_cast<T*>(input_data);
     auto* output_data_iter = reinterpret_cast<T*>(output_data);
-    for (int n = 0; n < N; ++n) {
+    for (int n = 0; n < N_; ++n) {
       const auto num_elements = (lod[n + 1] - lod[n]) * ICs[layer];
-      const auto offset = dir == R2L ? (Ti * ICs[layer] - num_elements) : 0;
-      memcpy(output_data_iter + n * Ti * ICs[layer] + offset, input_data_iter,
+      const auto offset = dir == R2L ? (Ti_ * ICs[layer] - num_elements) : 0;
+      memcpy(output_data_iter + n * Ti_ * ICs[layer] + offset, input_data_iter,
              sizeof(T) * num_elements);
       input_data_iter += num_elements;
     }
@@ -261,12 +263,12 @@ class MultiGRUHandler {
                       std::vector<size_t> lod, int layer, Direction dir) {
     auto* input_data_iter = reinterpret_cast<T*>(input_data);
     auto* output_data_iter = reinterpret_cast<T*>(output_data);
-    for (int n = 0; n < N; ++n) {
+    for (int n = 0; n < N_; ++n) {
       const auto num_elements = (lod[n + 1] - lod[n]);
-      const auto offset = dir == R2L ? (Ti - num_elements) : 0;
+      const auto offset = dir == R2L ? (Ti_ - num_elements) : 0;
       for (size_t t = 0; t < num_elements; ++t) {
         memcpy(
-            output_data_iter + (t + offset) * N * ICs[layer] + n * ICs[layer],
+            output_data_iter + (t + offset) * N_ * ICs[layer] + n * ICs[layer],
             input_data_iter, sizeof(T) * ICs[layer]);
         input_data_iter += ICs[layer];
       }
@@ -296,25 +298,25 @@ class MultiGRUHandler {
 
   // TODO(grygielski) H0 is for now persistable
   std::shared_ptr<dnnl::memory> AcquireH0Memory(int layer, Direction dir) {
-    const std::string h0_key =
-        memory_key_ + "@h0" + dir2str(dir) + std::to_string(layer);
+    auto key = memory_key_;
+    key.append("@h0").append(dir2str(dir)).append(std::to_string(layer));
     auto memory_p =
-        std::static_pointer_cast<dnnl::memory>(dev_ctx_.GetBlob(h0_key));
+        std::static_pointer_cast<dnnl::memory>(dev_ctx_.GetBlob(key));
     if (!memory_p) {
       auto user_h0_memory = dnnl::memory();
       if (h0_) {
         user_h0_memory =
-            dnnl::memory({{1, 1, N, OCs[layer]},
+            dnnl::memory({{1, 1, N_, OCs[layer]},
                           MKLDNNGetDataType<float>(),
                           MKLDNNMemoryFormat::ldnc},
                          engine_, to_void_cast(h0_->data<float>()));
       } else {
-        user_h0_memory = dnnl::memory({{1, 1, N, OCs[layer]},
+        user_h0_memory = dnnl::memory({{1, 1, N_, OCs[layer]},
                                        MKLDNNGetDataType<float>(),
                                        MKLDNNMemoryFormat::ldnc},
                                       engine_);
         memset(user_h0_memory.get_data_handle(), 0,
-               sizeof(float) * N * OCs[layer]);
+               sizeof(float) * N_ * OCs[layer]);
       }
       memory_p = std::make_shared<dnnl::memory>(
           gru_pds_[{layer, dir}]->src_iter_desc(), engine_);
@@ -323,16 +325,16 @@ class MultiGRUHandler {
       dnnl::reorder(user_h0_memory, *memory_p, attrs_[2 * layer + (dir == L2R)])
           .execute(astream, user_h0_memory, *memory_p);
 
-      dev_ctx_.SetBlob(h0_key, memory_p);
+      dev_ctx_.SetBlob(key, memory_p);
     }
     return memory_p;
   }
 
   std::shared_ptr<dnnl::memory> AcquireWeightXMemory(int layer, Direction dir) {
-    const std::string wx_key =
-        memory_key_ + "@wx" + dir2str(dir) + std::to_string(layer);
+    auto key = memory_key_;
+    key.append("@wx").append(dir2str(dir)).append(std::to_string(layer));
     auto memory_p =
-        std::static_pointer_cast<dnnl::memory>(dev_ctx_.GetBlob(wx_key));
+        std::static_pointer_cast<dnnl::memory>(dev_ctx_.GetBlob(key));
 
     if (!memory_p) {
       auto user_md =
@@ -362,16 +364,16 @@ class MultiGRUHandler {
       dnnl::reorder(user_memory, *memory_p, attrs_[2 * layer + (dir == L2R)])
           .execute(astream, user_memory, *memory_p);
 
-      dev_ctx_.SetBlob(wx_key, memory_p);
+      dev_ctx_.SetBlob(key, memory_p);
     }
     return memory_p;
   }
 
   std::shared_ptr<dnnl::memory> AcquireWeightHMemory(int layer, Direction dir) {
-    const std::string wh_key =
-        memory_key_ + "@wh" + dir2str(dir) + std::to_string(layer);
+    auto key = memory_key_;
+    key.append("@wh").append(dir2str(dir)).append(std::to_string(layer));
     auto memory_p =
-        std::static_pointer_cast<dnnl::memory>(dev_ctx_.GetBlob(wh_key));
+        std::static_pointer_cast<dnnl::memory>(dev_ctx_.GetBlob(key));
 
     if (!memory_p) {
       auto user_md =
@@ -418,16 +420,16 @@ class MultiGRUHandler {
       dnnl::reorder(user_memory, *memory_p, attrs_[2 * layer + (dir == L2R)])
           .execute(astream, user_memory, *memory_p);
 
-      dev_ctx_.SetBlob(wh_key, memory_p);
+      dev_ctx_.SetBlob(key, memory_p);
     }
     return memory_p;
   }
 
   std::shared_ptr<dnnl::memory> AcquireBiasMemory(int layer, Direction dir) {
-    const std::string bias_key =
-        memory_key_ + "@b" + dir2str(dir) + std::to_string(layer);
+    auto key = memory_key_;
+    key.append("@b").append(dir2str(dir)).append(std::to_string(layer));
     auto memory_p =
-        std::static_pointer_cast<dnnl::memory>(dev_ctx_.GetBlob(bias_key));
+        std::static_pointer_cast<dnnl::memory>(dev_ctx_.GetBlob(key));
 
     if (!memory_p) {
       memory_p = std::make_shared<dnnl::memory>(
@@ -450,14 +452,15 @@ class MultiGRUHandler {
           bias_data[i] *= -1;
         }
       }
-      dev_ctx_.SetBlob(bias_key, memory_p);
+      dev_ctx_.SetBlob(key, memory_p);
     }
     return memory_p;
   }
 
   std::shared_ptr<dnnl::memory> AcquireGruOutputMemory(int layer,
                                                        Direction dir) {
-    const auto key = key_ + "@h_mem" + dir2str(dir) + std::to_string(layer);
+    auto key = key_;
+    key.append("@h_m").append(dir2str(dir)).append(std::to_string(layer));
     auto memory_p =
         std::static_pointer_cast<dnnl::memory>(dev_ctx_.GetBlob(key));
 
@@ -471,8 +474,8 @@ class MultiGRUHandler {
 
   std::shared_ptr<dnnl::gru_forward> AcquireGruPrimitive(int layer,
                                                          Direction dir) {
-    const std::string key =
-        key_ + "@gru_p" + dir2str(dir) + std::to_string(layer);
+    auto key = key_;
+    key.append("@gru_p").append(dir2str(dir)).append(std::to_string(layer));
     auto prim =
         std::static_pointer_cast<dnnl::gru_forward>(dev_ctx_.GetBlob(key));
     if (prim == nullptr) {
@@ -485,12 +488,12 @@ class MultiGRUHandler {
   void reorderInputL2RtoR2L(std::shared_ptr<dnnl::memory> mem, int layer) {
     auto* data = mem->get_data_handle();
     auto* data_iter = reinterpret_cast<T*>(data);
-    for (int n = 0; n < N; ++n) {
+    for (int n = 0; n < N_; ++n) {
       const auto num_elements = (x_lod_[n + 1] - x_lod_[n]) * ICs[layer];
-      const auto offset = Ti * ICs[layer] - num_elements;
+      const auto offset = Ti_ * ICs[layer] - num_elements;
       memmove(data_iter + offset, data_iter, sizeof(T) * num_elements);
       memset(data_iter, 0, sizeof(T) * offset);
-      data_iter += Ti * ICs[layer];
+      data_iter += Ti_ * ICs[layer];
     }
   }
 
@@ -498,12 +501,12 @@ class MultiGRUHandler {
   void reorderOutputR2LtoL2R(std::shared_ptr<dnnl::memory> mem, int layer) {
     auto* data = mem->get_data_handle();
     auto* data_iter = reinterpret_cast<K*>(data);
-    for (int n = 0; n < N; ++n) {
+    for (int n = 0; n < N_; ++n) {
       const auto num_elements = (x_lod_[n + 1] - x_lod_[n]) * OCs[layer];
-      const auto offset = Ti * OCs[layer] - num_elements;
+      const auto offset = Ti_ * OCs[layer] - num_elements;
       memmove(data_iter, data_iter + offset, sizeof(K) * num_elements);
       memset(data_iter + num_elements, 0, sizeof(K) * offset);
-      data_iter += Ti * OCs[layer];
+      data_iter += Ti_ * OCs[layer];
     }
   }
 
@@ -527,7 +530,8 @@ class MultiGRUHandler {
 
   std::shared_ptr<std::vector<dnnl::memory>> AcquireConcatInputMemories(
       int layer) {
-    const auto key = key_ + "@ci_mem" + std::to_string(layer);
+    auto key = key_;
+    key.append("@ci_m").append(std::to_string(layer));
     auto memory_p = std::static_pointer_cast<std::vector<dnnl::memory>>(
         dev_ctx_.GetBlob(key));
 
@@ -542,7 +546,8 @@ class MultiGRUHandler {
   }
 
   std::shared_ptr<dnnl::memory> AcquireConcatOutputMemory(int layer) {
-    const auto key = key_ + "@co_mem" + std::to_string(layer);
+    auto key = key_;
+    key.append("@co_m").append(std::to_string(layer));
     auto memory_p =
         std::static_pointer_cast<dnnl::memory>(dev_ctx_.GetBlob(key));
 
@@ -555,7 +560,8 @@ class MultiGRUHandler {
   }
 
   std::shared_ptr<dnnl::concat> AcquireConcatPrimitive(int layer) {
-    const std::string key = key_ + "@c_p" + std::to_string(layer);
+    auto key = key_;
+    key.append("@c_p").append(std::to_string(layer));
     auto prim = std::static_pointer_cast<dnnl::concat>(dev_ctx_.GetBlob(key));
     if (prim == nullptr) {
       prim = std::make_shared<dnnl::concat>(*concat_pds_[layer]);
@@ -587,9 +593,9 @@ class MultiGRUHandler {
     auto* input_data_iter = reinterpret_cast<T_out*>(input_data);
     auto* output_data_iter = reinterpret_cast<T_out*>(output_data);
     auto oc = OCs[layer] * 2;
-    for (int n = 0; n < N; ++n) {
+    for (int n = 0; n < N_; ++n) {
       const auto num_elements = (x_lod_[n + 1] - x_lod_[n]) * oc;
-      memcpy(output_data_iter, input_data_iter + n * Ti * oc,
+      memcpy(output_data_iter, input_data_iter + n * Ti_ * oc,
              sizeof(T_out) * num_elements);
       output_data_iter += num_elements;
     }
@@ -598,11 +604,11 @@ class MultiGRUHandler {
   void reorderTNCtoPP(void* input_data, void* output_data, int layer) {
     auto* input_data_iter = reinterpret_cast<T_out*>(input_data);
     auto* output_data_iter = reinterpret_cast<T_out*>(output_data);
-    for (int n = 0; n < N; ++n) {
+    for (int n = 0; n < N_; ++n) {
       const auto num_elements = x_lod_[n + 1] - x_lod_[n];
       for (size_t t = 0; t < num_elements; ++t) {
         memcpy(output_data_iter,
-               input_data_iter + t * N * OCs[layer] + n * OCs[layer],
+               input_data_iter + t * N_ * OCs[layer] + n * OCs[layer],
                sizeof(T_out) * OCs[layer]);
         output_data_iter += OCs[layer];
       }
@@ -613,14 +619,10 @@ class MultiGRUHandler {
   // RNN dimensions
   // N - Batch Size
   // Ti - Max sentence length
-  // IC - Input Channels
-  // OC - Output Channels
-  int64_t N, Ti;
+  // ICs - Input Channels
+  // OCs - Output Channels
+  int64_t N_, Ti_;
   std::vector<int64_t> ICs, OCs;
-  // oneDNN RNN dimensions
-  const int64_t D = 1;  // Directions
-  const int64_t L = 1;  // Layers (PP supports only 1 stacked layer)
-  const int64_t G = 3;  // Number of Gates, 3 for GRU
 
   const platform::MKLDNNDeviceContext& dev_ctx_;
   const dnnl::engine engine_;
@@ -632,9 +634,6 @@ class MultiGRUHandler {
            std::shared_ptr<dnnl::gru_forward::primitive_desc>>
       gru_pds_;
   std::vector<std::shared_ptr<dnnl::concat::primitive_desc>> concat_pds_;
-  // std::map<std::pair<int, Direction>, std::string> wx_keys_;
-  // std::map<std::pair<int, Direction>, std::string> wh_keys_;
-  // std::map<std::pair<int, Direction>, std::string> b_keys_;
 
   std::string key_;
   // Memory size of weights, bias and h0 does not depend

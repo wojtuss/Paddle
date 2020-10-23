@@ -152,22 +152,26 @@ void MultiGRUOpMaker::Make() {
       .AsDispensable();
   AddInput("WeightX",
            "(MultiTensor) The FC weight with shape (M x 3D),"
-           "where M is the dim size of x, D is the hidden size. ");
+           "where M is the dim size of x, D is the hidden size. ")
+      .AsDuplicable();
   AddInput("WeightH",
            "(MultiTensor) (D x 3D) Same as GRUOp, where D is the hidden size. "
            "This weight is not exactly D x 3D as: {W_update, W_reset, W_state}"
            "Acutally they are D x 2D and D x D two part weights."
            "{W_update, W_reset; W_state}"
-           "{D x (D + D); D x D}");
+           "{D x (D + D); D x D}")
+      .AsDuplicable();
   AddInput("Bias",
            "(MultiTensor, optional) (1 x 3D)."
            "Almost same as GRUOp."
            "Note: if have FC bias it should be added on this bias.")
+      .AsDuplicable()
       .AsDispensable();
   AddInput(
       "Scale_weights",
       "(MultiTensor, optional) Scale_weights to be used for int8 weights data."
       "Only used with MKL-DNN INT8.")
+      .AsDuplicable()
       .AsDispensable();
   AddOutput("ReorderedH0", "(Tensor) (N x D), which N is the min-batch size.")
       .AsIntermediate();
