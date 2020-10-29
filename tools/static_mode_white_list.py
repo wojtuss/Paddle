@@ -592,6 +592,7 @@ STATIC_MODE_TESTING_LIST = [
     'test_fc_mkldnn_op',
     'test_fusion_gru_int8_mkldnn_op',
     'test_fusion_gru_mkldnn_op',
+    'test_multi_gru_mkldnn_op',
     'test_gaussian_random_mkldnn_op',
     'test_lrn_mkldnn_op',
     'test_matmul_mkldnn_op',

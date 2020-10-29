@@ -74,14 +74,15 @@ class TestMultiGruMkldnnOp(OpTest):
         T = sum(self.lod[0])
         N = len(self.lod[0])
 
+        self.inputs = {}
         if is_int8:
             x_f32 = np.random.rand(T, self.ICs[0]).astype('float32') * 2 - 1
             x_u8 = np.rint(x_f32 * scale_data + shift_data).astype(np.uint8)
-            self.inputs = {'X': (x_u8, self.lod)}
+            self.inputs['X'] = (x_u8, self.lod)
 
         else:
             x_f32 = np.random.rand(T, self.ICs[0]).astype('float32')
-            self.inputs = {'X': (x_f32, self.lod)}
+            self.inputs['X'] = (x_f32, self.lod)
 
         wx = []
         wh = []
