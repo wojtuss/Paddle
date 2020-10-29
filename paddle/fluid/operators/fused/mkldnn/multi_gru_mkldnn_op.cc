@@ -62,12 +62,10 @@ class MultiGRUHandler {
         layers_(ctx.Attr<int>("layers")),
         concat_pds_(layers_, std::shared_ptr<dnnl::concat::primitive_desc>()),
         x_(ctx.Input<LoDTensor>("X")),
-        h0_(ctx.Input<Tensor>("H0")),
         weights_x_(ctx.MultiInput<Tensor>("WeightX")),
         weights_h_(ctx.MultiInput<Tensor>("WeightH")),
         biases_(ctx.MultiInput<Tensor>("Bias")),
         hidden_(ctx.Output<LoDTensor>("Hidden")),
-        attrs_(weights_x_.size(), dnnl::primitive_attr()),
         x_lod_(x_->lod()[0]) {
     PADDLE_ENFORCE_EQ(
         weights_x_.size(), layers_ * 2,
@@ -103,13 +101,11 @@ class MultiGRUHandler {
         }();
 
     // Weights come in pairs, with the same dimensions within a pair
-    for (size_t i = 0; i < weights_x_.size(); i += 2) {
-      ICs.push_back(vectorize(weights_x_[i]->dims())[0]);
-      OCs.push_back(vectorize(weights_h_[i]->dims())[0]);
+    for (int layer = 0; layer < layers_; ++layer) {
+      ICs.push_back(vectorize(weights_x_[2 * layer]->dims())[0]);
+      OCs.push_back(vectorize(weights_h_[2 * layer]->dims())[0]);
     }
 
-    // const std::string unique_name =
-    // ctx.InputName("X") + ctx.InputNames("WeightH")[0];
     const std::string unique_name = ctx.OutputName("Hidden");
     // Create memory key without Ti because weights, bias and h0 memories
     // do not depend on Ti size but primitive and input/output memory do
@@ -126,9 +122,20 @@ class MultiGRUHandler {
     // Is it int8 kernel
     const bool is_int8 = std::is_same<T, uint8_t>::value;
 
+    // Create attributes for each oneDNN gru
+    for (int i = 0; i < 2 * layers_; ++i) {
+      attrs_.push_back(dnnl::primitive_attr());
+    }
+
     if (is_int8) {
-      // Int8 attributes
+      // Add int8 attributes
       const auto scale_weights = ctx.MultiInput<LoDTensor>("Scale_weights");
+      PADDLE_ENFORCE_EQ(
+          scale_weights.size(), layers_ * 2,
+          platform::errors::InvalidArgument(
+              "The number of weight scale inputs does "
+              "not match the number of layers. Expected: %d. Actual: %d",
+              layers_ * 2, scale_weights.size()));
       const float scale_data = ctx.Attr<float>("Scale_data");
       const float shift_data = ctx.Attr<float>("Shift_data");
 
@@ -139,7 +146,7 @@ class MultiGRUHandler {
           (1 << 4);  // bit, indicating the unique scales for `o` dim in `ldigo`
 
       int w_scale_num = scale_weights.size();
-      for (int i = w_scale_num - 2; i < w_scale_num; ++i) {
+      for (int i = 0; i < w_scale_num; ++i) {
         attrs_[i].set_rnn_data_qparams(scale_data, shift_data);
         const auto scale_weights_data = std::vector<float>(
             scale_weights[i]->data<float>(),
@@ -188,7 +195,7 @@ class MultiGRUHandler {
           dnnl::prop_kind::forward_inference, dir, x_md, h0_md, wx_md, wh_md,
           b_md, h_md, dnnl::memory::desc());
       pd = std::make_shared<dnnl::gru_forward::primitive_desc>(
-          *desc, attrs_[2 * layer + (dir == L2R)], engine_);
+          *desc, attrs_[2 * layer + (dir == R2L)], engine_);
       PADDLE_ENFORCE_NOT_NULL(
           pd, platform::errors::InvalidArgument(
                   "Primitive descriptor for gru_forward cannot be null."));
@@ -304,25 +311,17 @@ class MultiGRUHandler {
         std::static_pointer_cast<dnnl::memory>(dev_ctx_.GetBlob(key));
     if (!memory_p) {
       auto user_h0_memory = dnnl::memory();
-      if (h0_) {
-        user_h0_memory =
-            dnnl::memory({{1, 1, N_, OCs[layer]},
-                          MKLDNNGetDataType<float>(),
-                          MKLDNNMemoryFormat::ldnc},
-                         engine_, to_void_cast(h0_->data<float>()));
-      } else {
-        user_h0_memory = dnnl::memory({{1, 1, N_, OCs[layer]},
-                                       MKLDNNGetDataType<float>(),
-                                       MKLDNNMemoryFormat::ldnc},
-                                      engine_);
-        memset(user_h0_memory.get_data_handle(), 0,
-               sizeof(float) * N_ * OCs[layer]);
-      }
+      user_h0_memory = dnnl::memory({{1, 1, N_, OCs[layer]},
+                                     MKLDNNGetDataType<float>(),
+                                     MKLDNNMemoryFormat::ldnc},
+                                    engine_);
+      memset(user_h0_memory.get_data_handle(), 0,
+             sizeof(float) * N_ * OCs[layer]);
       memory_p = std::make_shared<dnnl::memory>(
           gru_pds_[{layer, dir}]->src_iter_desc(), engine_);
 
       dnnl::stream astream(engine_);
-      dnnl::reorder(user_h0_memory, *memory_p, attrs_[2 * layer + (dir == L2R)])
+      dnnl::reorder(user_h0_memory, *memory_p, attrs_[2 * layer + (dir == R2L)])
           .execute(astream, user_h0_memory, *memory_p);
 
       dev_ctx_.SetBlob(key, memory_p);
@@ -361,7 +360,7 @@ class MultiGRUHandler {
           gru_pds_[{layer, dir}]->weights_layer_desc(), engine_);
 
       dnnl::stream astream(engine_);
-      dnnl::reorder(user_memory, *memory_p, attrs_[2 * layer + (dir == L2R)])
+      dnnl::reorder(user_memory, *memory_p, attrs_[2 * layer + (dir == R2L)])
           .execute(astream, user_memory, *memory_p);
 
       dev_ctx_.SetBlob(key, memory_p);
@@ -417,7 +416,7 @@ class MultiGRUHandler {
           gru_pds_[{layer, dir}]->weights_iter_desc(), engine_);
 
       dnnl::stream astream(engine_);
-      dnnl::reorder(user_memory, *memory_p, attrs_[2 * layer + (dir == L2R)])
+      dnnl::reorder(user_memory, *memory_p, attrs_[2 * layer + (dir == R2L)])
           .execute(astream, user_memory, *memory_p);
 
       dev_ctx_.SetBlob(key, memory_p);
@@ -601,6 +600,7 @@ class MultiGRUHandler {
     }
   }
 
+  // Reorder output values to PP format [T, N, C] -> [WORDS, C]
   void reorderTNCtoPP(void* input_data, void* output_data, int layer) {
     auto* input_data_iter = reinterpret_cast<T_out*>(input_data);
     auto* output_data_iter = reinterpret_cast<T_out*>(output_data);
@@ -641,7 +641,6 @@ class MultiGRUHandler {
   std::string memory_key_;
 
   const LoDTensor* x_;
-  const Tensor* h0_;
   const std::vector<const Tensor*> weights_x_;
   const std::vector<const Tensor*> weights_h_;
   const std::vector<const Tensor*> biases_;

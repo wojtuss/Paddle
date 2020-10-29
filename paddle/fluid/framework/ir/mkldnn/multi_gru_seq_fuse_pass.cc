@@ -119,16 +119,6 @@ void MultiGruSeqFusePass::ApplyImpl(ir::Graph* graph) const {
     auto multi_gru =
         g->CreateOpNode(&multi_gru_desc);  // OpDesc will be copied.
 
-    for (auto out_name : {"BatchedInput", "BatchedOut", "ReorderedH0", "XX"}) {
-      auto var_name = name_scope_ + "/" + out_name;
-      multi_gru->Op()->SetOutput(out_name,
-                                 std::vector<std::string>({var_name}));
-      VarDesc var_desc(var_name);
-      var_desc.SetPersistable(false);
-      auto* out_node = graph->CreateVarNode(&var_desc);
-      IR_NODE_LINK_TO(multi_gru, out_node);
-    }
-
     IR_NODE_LINK_TO(x, multi_gru);
     IR_NODE_LINK_TO(wx11, multi_gru);
     IR_NODE_LINK_TO(wx12, multi_gru);

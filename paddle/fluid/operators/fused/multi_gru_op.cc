@@ -32,7 +32,6 @@ void MultiGRUOp::InferShape(framework::InferShapeContext* ctx) const {
   OP_INOUT_CHECK(ctx->HasInput("X"), "Input", "X", "multi_gru");
   OP_INOUT_CHECK(ctx->HasInputs("WeightX"), "Input", "WeightX", "multi_gru");
   OP_INOUT_CHECK(ctx->HasInputs("WeightH"), "Input", "WeightH", "multi_gru");
-  OP_INOUT_CHECK(ctx->HasOutput("XX"), "Output", "XX", "multi_gru");
   OP_INOUT_CHECK(ctx->HasOutput("Hidden"), "Output", "Hidden", "multi_gru");
   auto x_dims = ctx->GetInputDim("X");
   auto x_mat_dims = (x_dims.size() == 3 && x_dims[1] == 1)
@@ -45,88 +44,75 @@ void MultiGRUOp::InferShape(framework::InferShapeContext* ctx) const {
                                         "1, but now Input X dim is:[%s] ",
                                         x_dims));
 
-  auto wx_dims = ctx->GetInputsDim("WeightX")[0];
-  PADDLE_ENFORCE_EQ(wx_dims.size(), 2,
-                    platform::errors::InvalidArgument(
-                        "The rank of Input(WeightX) should be 2, but received "
-                        "WeightX dim size is:%d, WeightX dim is:[%s] ",
-                        wx_dims.size(), wx_dims));
-  // PADDLE_ENFORCE_EQ(
-  // wx_dims[0], x_mat_dims[1],
-  // platform::errors::InvalidArgument(
-  // "The first dimension of flattened WeightX"
-  // "should equal to last dimension of flattened input X, but "
-  // "received fattened WeightX dimension is:%d, flattened X dimension "
-  // "is:%d",
-  // wx_dims[0], x_mat_dims[1]));
-
-  int frame_size = wx_dims[1] / 3;
-  auto wh_dims = ctx->GetInputsDim("WeightH")[0];
-
-  PADDLE_ENFORCE_EQ(wh_dims.size(), 2,
-                    platform::errors::InvalidArgument(
-                        "The rank of Input(WeightH) should be 2, but received "
-                        "WeightH dim size is:%d, WeightH dim is:[%s]",
-                        wh_dims.size(), wh_dims));
-  PADDLE_ENFORCE_EQ(wh_dims[0], frame_size,
-                    platform::errors::InvalidArgument(
-                        "The first dimension of WeightH "
-                        "should equal to frame_size, but received WeightH's "
-                        "first dimension is: "
-                        "%d, frame size is:%d",
-                        wh_dims[0], frame_size));
-  PADDLE_ENFORCE_EQ(wh_dims[1], 3 * frame_size,
-                    platform::errors::InvalidArgument(
-                        "The second dimension of Input(WeightH) "
-                        "should equal to 3 * frame_size, but received WeightH "
-                        "is:%d, frame size is:%d",
-                        wh_dims[1], frame_size));
-
-  if (ctx->HasInput("H0")) {
-    auto h0_dims = ctx->GetInputDim("H0");
-    PADDLE_ENFORCE_EQ(h0_dims[1], frame_size,
-                      platform::errors::InvalidArgument(
-                          "The width of H0 must be equal to frame_size, but "
-                          "receiced the width of H0 is:%d, frame size is:%d",
-                          h0_dims[1], frame_size));
+  auto layers = ctx->Attrs().Get<int>("layers");
+  auto wx_dims = ctx->GetInputsDim("WeightX");
+  for (int i : {0, 1}) {
+    PADDLE_ENFORCE_EQ(
+        wx_dims[i][0], x_mat_dims[1],
+        platform::errors::InvalidArgument(
+            "The first dimension of flattened WeightX #%d"
+            "should equal to last dimension of flattened input X, but "
+            "received fattened WeightX dimension is:%d, flattened X dimension "
+            "is:%d",
+            i, wx_dims[i][0], x_mat_dims[1]));
   }
+
+  auto wh_dims = ctx->GetInputsDim("WeightH");
+  for (int i = 0; i < 2 * layers; ++i) {
+    PADDLE_ENFORCE_EQ(wx_dims[i].size(), 2,
+                      platform::errors::InvalidArgument(
+                          "The rank of WeightX #%d should be 2, but received "
+                          "WeightX dim size is:%d, WeightX dim is:[%s] ",
+                          i, wx_dims[i].size(), wx_dims[i]));
+    PADDLE_ENFORCE_EQ(wh_dims[i].size(), 2,
+                      platform::errors::InvalidArgument(
+                          "The rank of WeightH #%d should be 2, but received "
+                          "WeightH dim size is:%d, WeightH dim is:[%s] ",
+                          i, wh_dims[i].size(), wh_dims[i]));
+    int frame_size = wh_dims[i][0];
+    PADDLE_ENFORCE_EQ(
+        wh_dims[i][1], 3 * frame_size,
+        platform::errors::InvalidArgument(
+            "The second dimension of WeightH #%d "
+            "should equal to 3 * frame_size, but received WeightH's "
+            "second dimension is: %d, frame size is:%d",
+            i, wh_dims[1], frame_size));
+    PADDLE_ENFORCE_EQ(
+        wx_dims[i][1], 3 * frame_size,
+        platform::errors::InvalidArgument(
+            "The second dimension of WeightX #%d "
+            "should equal to 3 * frame_size, but received WeightX's "
+            "second dimension is: %d, frame size is:%d",
+            i, wx_dims[i][1], frame_size));
+  }
+
   if (ctx->HasInputs("Bias")) {
-    auto b_dims = ctx->GetInputsDim("Bias")[0];
-    PADDLE_ENFORCE_EQ(b_dims.size(), 2,
-                      platform::errors::InvalidArgument(
-                          "The rank of Input(Bias) should be 2, but received "
-                          "Bias rank is:%d, Bias dim is:[%s]",
-                          b_dims.size(), b_dims));
-    PADDLE_ENFORCE_EQ(b_dims[0], 1,
-                      platform::errors::InvalidArgument(
-                          "The first dimension of Input(Bias) should be 1, but "
-                          "received Bias first dim is:%d, Bias dim is:[%s]",
-                          b_dims[0], b_dims));
-    PADDLE_ENFORCE_EQ(b_dims[1], frame_size * 3,
-                      platform::errors::InvalidArgument(
-                          "The shape of Bias must be [1, frame_size * 3], but "
-                          "received bias dim is:[%s], frame size is:%d",
-                          b_dims, frame_size));
+    auto b_dims = ctx->GetInputsDim("Bias");
+    for (int i = 0; i < 2 * layers; ++i) {
+      int frame_size = wh_dims[i][0];
+      PADDLE_ENFORCE_EQ(b_dims[i].size(), 2,
+                        platform::errors::InvalidArgument(
+                            "The rank of Bias #%d should be 2, but received "
+                            "Bias rank is:%d, Bias dim is:[%s]",
+                            i, b_dims[i].size(), b_dims[i]));
+      PADDLE_ENFORCE_EQ(b_dims[i][0], 1,
+                        platform::errors::InvalidArgument(
+                            "The first dimension of Bias #%d should be 1, but "
+                            "received Bias first dim is:%d, Bias dim is:[%s]",
+                            i, b_dims[i][0], b_dims[i]));
+      PADDLE_ENFORCE_EQ(
+          b_dims[i][1], frame_size * 3,
+          platform::errors::InvalidArgument(
+              "The shape of Bias #%d must be [1, frame_size * 3], but "
+              "received bias dim is:[%s], frame size is:%d",
+              i, b_dims[i], frame_size));
+    }
   }
-  framework::DDim out_dims({x_mat_dims[0], 2 * frame_size});
+
+  int last_frame_size = wh_dims.back()[0];
+  framework::DDim out_dims({x_mat_dims[0], 2 * last_frame_size});
   ctx->SetOutputDim("Hidden", out_dims);
   ctx->ShareLoD("X", "Hidden");
-  int xx_width;
-  if (ctx->Attrs().Get<bool>("use_seq")) {
-    xx_width = wx_dims[1];
-  } else {
-    xx_width = x_mat_dims[1] > wx_dims[1] ? wx_dims[1] : x_mat_dims[1];
-    OP_INOUT_CHECK(ctx->HasOutput("ReorderedH0"), "Output", "ReorderedH0",
-                   "multi_gru");
-    OP_INOUT_CHECK(ctx->HasOutput("BatchedInput"), "Output", "BatchedInput",
-                   "multi_gru");
-    OP_INOUT_CHECK(ctx->HasOutput("BatchedOut"), "Output", "BatchedOut",
-                   "multi_gru");
-    ctx->SetOutputDim("BatchedInput", {x_mat_dims[0], wx_dims[1]});
-    ctx->SetOutputDim("BatchedOut", out_dims);
-  }
-  ctx->SetOutputDim("XX", {x_mat_dims[0], xx_width});
-  ctx->ShareLoD("X", "XX");
 }
 
 framework::OpKernelType MultiGRUOp::GetExpectedKernelType(
@@ -145,11 +131,6 @@ void MultiGRUOpMaker::Make() {
            "variable-time length input sequence. The underlying tensor in "
            "this LoDTensor is a matrix with shape (T X M), where T is the "
            "total time steps in this mini-batch, M is the dim size of x.");
-  AddInput("H0",
-           "(Tensor, optional) The initial hidden state is an optional "
-           "input. This is a tensor with shape (N x D), where N is the "
-           "batch size, D is the hidden size.")
-      .AsDispensable();
   AddInput("WeightX",
            "(MultiTensor) The FC weight with shape (M x 3D),"
            "where M is the dim size of x, D is the hidden size. ")
@@ -173,20 +154,6 @@ void MultiGRUOpMaker::Make() {
       "Only used with MKL-DNN INT8.")
       .AsDuplicable()
       .AsDispensable();
-  AddOutput("ReorderedH0", "(Tensor) (N x D), which N is the min-batch size.")
-      .AsIntermediate();
-  AddOutput("XX",
-            "(LoDTensor) the result after X * WeightX (size is T x 3D)"
-            " or batched_X (size is T x M), this will be automatically chosen,"
-            " where T is the total time steps in this mini-batch,"
-            " D is the hidden size, M is the dim size of x input.")
-      .AsIntermediate();
-  AddOutput("BatchedInput",
-            "(LoDTensor) This is the batched result of input X"
-            "or the batched result after fc, shape (T x 3D)")
-      .AsIntermediate();
-  AddOutput("BatchedOut", "(LoDTensor) (T X D) save batched hidden.")
-      .AsIntermediate();
   AddOutput("Hidden", "(LoDTensor) (T x D) Same as GRUOp");
   AddAttr<std::string>("activation",
                        "(string, default tanh) "
@@ -201,10 +168,6 @@ void MultiGRUOpMaker::Make() {
                "(int, default: 1) "
                "Number of stacked GRU layers.")
       .SetDefault(1);
-  AddAttr<bool>("use_seq",
-                "(bool, default: True) "
-                "whether to use seq mode to compute GRU.")
-      .SetDefault(true);
   AddAttr<bool>("origin_mode",
                 "bool"
                 "use origin mode in article https://arxiv.org/abs/1412.3555")
@@ -214,12 +177,10 @@ void MultiGRUOpMaker::Make() {
       "(string, default \"float32\"). Data type of mkldnn kernel")
       .SetDefault("float32")
       .InEnum({"float32", "int8", "bfloat16"});
-  // AddAttr<std::vector<float>>("Scale_data",
   AddAttr<float>("Scale_data",
                  "Scales to be used for int8 input/output data."
                  "Only used with MKL-DNN INT8.")
       .SetDefault({1.f});
-  // AddAttr<std::vector<float>>("Shift_data",
   AddAttr<float>("Shift_data",
                  "Shifts to be used for int8 input/output data."
                  "Only used with MKL-DNN INT8.")
