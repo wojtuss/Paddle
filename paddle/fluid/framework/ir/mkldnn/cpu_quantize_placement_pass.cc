@@ -48,9 +48,10 @@ void CPUQuantizePlacementPass::ApplyImpl(ir::Graph* graph) const {
       // The attribute `use_quantizer` is no longer used
       // assign value for compatibility
       if (op->Op()->GetAttrIfExists<bool>("use_quantizer")) {
-        op->Op()->SetAttr("use_quantizer", true);
+        op->Op()->SetAttr("mkldnn_data_type", INT8);
+      } else {
+        op->Op()->SetAttr("mkldnn_data_type", INT8);
       }
-      op->Op()->SetAttr("mkldnn_data_type", INT8);
     }
   };
   gpd(graph, handler);
