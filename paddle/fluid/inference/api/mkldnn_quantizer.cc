@@ -114,10 +114,17 @@ bool AnalysisPredictor::MkldnnQuantizer::CalculateScales() {
                 scales_[var_name] = {is_unsigned, scale_tensor};
                 compute_scale = false;
               }
+            } else if (op->Type() == "fusion_gru" ||
+                       op->Type() == "multi_gru") {
+              const auto& wx = connections["WeightX"];
+              const auto& wh = connections["WeightH"];
+              for (size_t i = 0; i < wx.size(); ++i)
+                CalculateSingleGruScale(op->Type(), wx[i], wh[i]);
             }
-            if (compute_scale)
+            if (compute_scale) {
               CalculateSingleScale(op->Type(), conn.first, var_name,
                                    *var_tensor, is_unsigned);
+            }
           }
         }
       };
@@ -156,6 +163,44 @@ void AnalysisPredictor::MkldnnQuantizer::CalculateSingleScale(
     case ScaleAlgo::MAX_CH_T:
       scales_[var_name] = GetMaxChScalingFactor(var_tensor, is_unsigned,
                                                 /*is_transposed*/ true);
+      break;
+    case ScaleAlgo::KL:
+      scales_[var_name] = GetKLScalingFactor(var_tensor, is_unsigned);
+      break;
+    default:
+      throw std::runtime_error(
+          "MkldnnQuantizer: Unexpected ScaleAlgo specified.");
+  }
+}
+
+void AnalysisPredictor::MkldnnQuantizer::CalculateSingleGruScale(
+    const std::string& op_type_name, const std::string& conn_name,
+    const std::string& var_name, const LoDTensor& var_tensor,
+    bool is_unsigned) {
+  auto rule = qconfig_->scale_algo(op_type_name, conn_name);
+  if (rule == ScaleAlgo::NONE) return;
+
+  PADDLE_ENFORCE_GT(
+      var_tensor.numel(), 0,
+      platform::errors::InvalidArgument(
+          "MkldnnQuantizer: LoDTensor of variable %s for quantization of op "
+          "%s of connection %s should not be empty.",
+          var_name, op_type_name, conn_name));
+
+  switch (rule) {
+    case ScaleAlgo::MAX:
+      scales_[var_name] = GetMaxScalingFactor(var_tensor, is_unsigned);
+      break;
+    case ScaleAlgo::MAX_CH:
+      scales_[var_name] = GetMaxChScalingFactor(var_tensor, is_unsigned,
+                                                /*is_transposed*/ false);
+      break;
+    case ScaleAlgo::MAX_CH_T:
+      scales_[var_name] = GetMaxChScalingFactor(var_tensor, is_unsigned,
+                                                /*is_transposed*/ true);
+      break;
+    case ScaleAlgo::MAX_CH_GRU:
+      scales_[var_name] = GetMaxChGruScalingFactor(var_tensor, is_unsigned);
       break;
     case ScaleAlgo::KL:
       scales_[var_name] = GetKLScalingFactor(var_tensor, is_unsigned);

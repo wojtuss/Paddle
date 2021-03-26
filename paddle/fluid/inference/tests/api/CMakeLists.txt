@@ -136,6 +136,7 @@ function(inference_analysis_api_lexical_test_run TARGET_NAME test_binary infer_m
         ARGS --infer_model=${infer_model}
              --infer_data=${data_path}
              --batch_size=50
+             --warmup_batch_size=50
              --cpu_num_threads=${CPU_NUM_THREADS_ON_CI}
              --with_accuracy_layer=true
              --use_analysis=true
@@ -436,6 +437,12 @@ if(WITH_MKLDNN)
   inference_analysis_api_lexical_test_run(test_analyzer_lexical_gru ${LEXICAL_TEST_APP} ${GRU_MODEL_PATH} ${GRU_DATA_PATH})
   # run bfloat16 lexical analysis test
   inference_analysis_api_lexical_bfloat16_test_run(test_analyzer_lexical_gru_bfloat16 ${LEXICAL_TEST_APP} ${GRU_MODEL_PATH} ${GRU_DATA_PATH})
+
+  ### INT8 GRU model
+  set(INT8_GRU_TEST_APP "test_analyzer_int8_gru")
+  set(INT8_GRU_TEST_APP_SRC "analyzer_int8_gru_tester.cc")
+  inference_analysis_api_test_build(${INT8_GRU_TEST_APP} ${INT8_GRU_TEST_APP_SRC})
+  inference_analysis_api_lexical_test_run(test_analyzer_int8_gru ${INT8_GRU_TEST_APP} ${GRU_MODEL_PATH} ${GRU_DATA_PATH})
 
   ### optimized FP32 vs. Quant INT8 tests
   
