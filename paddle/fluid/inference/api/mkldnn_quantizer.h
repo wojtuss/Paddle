@@ -67,9 +67,9 @@ class AnalysisPredictor::MkldnnQuantizer {
                             const std::string& var_name,
                             const framework::LoDTensor& var_tensor,
                             bool is_unsigned);
-  void CalculateSingleGruScale(const std::string& op_name,
-                               const framework::LoDTensor& wx_tensor,
-                               const framework::LoDTensor& wy_tensor);
+  void CalculateScalesForGRU(const paddle::framework::OpDesc* op);
+  void CalculateScalesForOpOutputs(const paddle::framework::OpDesc* op);
+  void CalculateScalesForOpInputs(const paddle::framework::OpDesc* op);
   void PrepareArgument() const;
   void ClearDeviceContext() const;
   bool RunQuantizePasses() const;

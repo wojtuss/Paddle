@@ -71,8 +71,9 @@ MkldnnQuantizerConfig::MkldnnQuantizerConfig() {
   rules_["fusion_gru"]["X"] = ScaleAlgo::KL;
   rules_["fusion_gru"]["H0"] = ScaleAlgo::NONE;
   rules_["fusion_gru"]["Bias"] = ScaleAlgo::NONE;
-  rules_["fusion_gru"]["WeightX"] = ScaleAlgo::MAX_CH;
-  rules_["fusion_gru"]["WeightH"] = ScaleAlgo::MAX_CH;
+  rules_["fusion_gru"]["WeightX"] = ScaleAlgo::MAX_CH_GRU;
+  rules_["fusion_gru"]["WeightH"] =
+      ScaleAlgo::NONE;  // WeightH will be handled together with WeightX
   rules_["fusion_gru"]["ReorderedH0"] = ScaleAlgo::NONE;
   rules_["fusion_gru"]["XX"] = ScaleAlgo::NONE;
   rules_["fusion_gru"]["BatchedInput"] = ScaleAlgo::NONE;

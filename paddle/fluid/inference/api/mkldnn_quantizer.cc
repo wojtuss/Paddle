@@ -44,97 +44,108 @@ using EigenMatrixArray =
     Eigen::Array<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
 using ConstEigenMatrixArrayMap = Eigen::Map<const EigenMatrixArray>;
 using string::PrettyLogH1;
+using VariableNameMap = std::map<std::string, std::vector<std::string>>;
 static LoDTensor CreateScaleTensor(int64_t channels_num = 1);
+
+void AnalysisPredictor::MkldnnQuantizer::CalculateScalesForGRU(
+    const paddle::framework::OpDesc* op) {}
+
+void AnalysisPredictor::MkldnnQuantizer::CalculateScalesForOpInputs(
+    const paddle::framework::OpDesc* op) {
+  for (auto const& input : op->Inputs()) {
+    for (const auto& var_name : input.second) {
+      // skip if scale already computed
+      if (scales_.find(var_name) != scales_.end()) continue;
+      auto* var = predictor_.sub_scope_->FindVar(var_name);
+      PADDLE_ENFORCE_NOT_NULL(var, platform::errors::PreconditionNotMet(
+                                       "%s is not in the scope", var_name));
+      PADDLE_ENFORCE_EQ(
+          var->IsType<LoDTensor>(), true,
+          platform::errors::PreconditionNotMet("Only support lod tensor now."));
+      LoDTensor* var_tensor = var->GetMutable<LoDTensor>();
+      // force unsigned type if already know it
+      bool is_unsigned = false;
+      CalculateSingleScale(op->Type(), input.first, var_name, *var_tensor,
+                           is_unsigned);
+    }
+  }
+}
+
+void AnalysisPredictor::MkldnnQuantizer::CalculateScalesForOpOutputs(
+    const paddle::framework::OpDesc* op) {
+  for (auto const& output : op->Outputs()) {
+    for (const auto& var_name : output.second) {
+      // skip if scale already computed
+      if (scales_.find(var_name) != scales_.end()) continue;
+      auto* var = predictor_.sub_scope_->FindVar(var_name);
+      PADDLE_ENFORCE_NOT_NULL(var, platform::errors::PreconditionNotMet(
+                                       "%s is not in the scope", var_name));
+      PADDLE_ENFORCE_EQ(
+          var->IsType<LoDTensor>(), true,
+          platform::errors::PreconditionNotMet("Only support lod tensor now."));
+      LoDTensor* var_tensor = var->GetMutable<LoDTensor>();
+      // force unsigned type if already know it
+      bool is_unsigned = false;
+      bool compute_scale = true;
+      if (op->Type() == "conv2d" || op->Type() == "fc") {
+        // output of conv2d with relu must be unsigned
+        std::string fuse_activation =
+            op->GetAttrIfExists<std::string>("fuse_activation");
+        is_unsigned = (fuse_activation == "relu" || fuse_activation == "relu6");
+      } else if (op->Type() == "relu") {
+        is_unsigned = true;
+      } else if (op->Type() == "transpose2" || op->Type() == "reshape2" ||
+                 op->Type() == "pool2d") {
+        auto input_var_name = op->Input("X")[0];
+        PADDLE_ENFORCE_NE(scales_.find(input_var_name), scales_.end(),
+                          platform::errors::PreconditionNotMet(
+                              "Input scales must be calculated before the "
+                              "output scales to infer if output is unsigned."));
+        if (scales_.find(input_var_name) != scales_.end()) {
+          scales_[var_name] = scales_[input_var_name];
+        }
+        compute_scale = false;
+      } else if (op->Type() == "concat") {
+        // output of ops with unsigned input must be unsigned
+        is_unsigned = true;
+        double min_scale = std::numeric_limits<double>::max();
+        for (auto input_var_name : op->Input("X")) {
+          PADDLE_ENFORCE_NE(
+              scales_.find(input_var_name), scales_.end(),
+              platform::errors::PreconditionNotMet(
+                  "Input scales must be calculated before the "
+                  "output scales to infer if output is unsigned."));
+          is_unsigned = is_unsigned && scales_[input_var_name].first;
+          min_scale = std::min(
+              min_scale, scales_[input_var_name].second.data<double>()[0]);
+        }
+        auto scale_tensor = CreateScaleTensor();
+        scale_tensor.data<double>()[0] = min_scale;
+        scales_[var_name] = {is_unsigned, scale_tensor};
+        compute_scale = false;
+      }
+      if (compute_scale) {
+        CalculateSingleScale(op->Type(), output.first, var_name, *var_tensor,
+                             is_unsigned);
+      }
+    }
+  }
+}
 
 bool AnalysisPredictor::MkldnnQuantizer::CalculateScales() {
   PrettyLogH1("--- Calculating scales for quantization");
-  using VariableNameMap = std::map<std::string, std::vector<std::string>>;
   std::map<std::string, std::map<std::string, LoDTensor>> gathered_data;
   for (const auto* op : predictor_.inference_program_->Block(0).AllOps()) {
     if (platform::HasOpINT8DataType(op)) {
-      const VariableNameMap& connections_in = op->Inputs();
-      const VariableNameMap& connections_out = op->Outputs();
-
-      auto glambda = [&](const VariableNameMap& connections, bool is_output) {
-        for (auto const& conn : connections) {
-          for (const auto& var_name : conn.second) {
-            // skip if scale already computed
-            if (scales_.find(var_name) != scales_.end()) continue;
-
-            auto* var = predictor_.sub_scope_->FindVar(var_name);
-            PADDLE_ENFORCE_NOT_NULL(var,
-                                    platform::errors::PreconditionNotMet(
-                                        "%s is not in the scope", var_name));
-            PADDLE_ENFORCE_EQ(var->IsType<LoDTensor>(), true,
-                              platform::errors::PreconditionNotMet(
-                                  "Only support lod tensor now."));
-            LoDTensor* var_tensor = var->GetMutable<LoDTensor>();
-
-            // force unsigned type if already know it
-            bool is_unsigned = false;
-            bool compute_scale = true;
-            if (is_output) {
-              if (op->Type() == "conv2d" || op->Type() == "fc") {
-                // output of conv2d with relu must be unsigned
-                std::string fuse_activation =
-                    op->GetAttrIfExists<std::string>("fuse_activation");
-                is_unsigned =
-                    (fuse_activation == "relu" || fuse_activation == "relu6");
-              } else if (op->Type() == "relu") {
-                is_unsigned = true;
-              } else if (op->Type() == "transpose2" ||
-                         op->Type() == "reshape2" || op->Type() == "pool2d") {
-                auto input_var_name = op->Input("X")[0];
-                PADDLE_ENFORCE_NE(
-                    scales_.find(input_var_name), scales_.end(),
-                    platform::errors::PreconditionNotMet(
-                        "Input scales must be calculated before the "
-                        "output scales to infer if output is unsigned."));
-                if (scales_.find(input_var_name) != scales_.end()) {
-                  scales_[var_name] = scales_[input_var_name];
-                }
-                compute_scale = false;
-              } else if (op->Type() == "concat") {
-                // output of ops with unsigned input must be unsigned
-                is_unsigned = true;
-                double min_scale = std::numeric_limits<double>::max();
-                for (auto input_var_name : op->Input("X")) {
-                  PADDLE_ENFORCE_NE(
-                      scales_.find(input_var_name), scales_.end(),
-                      platform::errors::PreconditionNotMet(
-                          "Input scales must be calculated before the "
-                          "output scales to infer if output is unsigned."));
-                  is_unsigned = is_unsigned && scales_[input_var_name].first;
-                  min_scale = std::min(
-                      min_scale,
-                      scales_[input_var_name].second.data<double>()[0]);
-                }
-                auto scale_tensor = CreateScaleTensor();
-                scale_tensor.data<double>()[0] = min_scale;
-                scales_[var_name] = {is_unsigned, scale_tensor};
-                compute_scale = false;
-              }
-            } else if (op->Type() == "fusion_gru" ||
-                       op->Type() == "multi_gru") {
-              const auto& wx = connections["WeightX"];
-              const auto& wh = connections["WeightH"];
-              for (size_t i = 0; i < wx.size(); ++i)
-                CalculateSingleGruScale(op->Type(), wx[i], wh[i]);
-            }
-            if (compute_scale) {
-              CalculateSingleScale(op->Type(), conn.first, var_name,
-                                   *var_tensor, is_unsigned);
-            }
-          }
-        }
-      };
-
-      // handle inputs first to let is_unsigned be inferred for the outputs
-      glambda(connections_in, false /* is_output */);
-      glambda(connections_out, true /* is_output */);
+      if (op->Type() == "fusion_gru" || op->Type() == "multi_gru") {
+        CalculateScalesForGRU(op);
+      } else {
+        // handle inputs first to let is_unsigned be inferred for the outputs
+        CalculateScalesForOpInputs(op);
+        CalculateScalesForOpOutputs(op);
+      }
     }
   }
-
   return true;
 }
 
@@ -163,44 +174,6 @@ void AnalysisPredictor::MkldnnQuantizer::CalculateSingleScale(
     case ScaleAlgo::MAX_CH_T:
       scales_[var_name] = GetMaxChScalingFactor(var_tensor, is_unsigned,
                                                 /*is_transposed*/ true);
-      break;
-    case ScaleAlgo::KL:
-      scales_[var_name] = GetKLScalingFactor(var_tensor, is_unsigned);
-      break;
-    default:
-      throw std::runtime_error(
-          "MkldnnQuantizer: Unexpected ScaleAlgo specified.");
-  }
-}
-
-void AnalysisPredictor::MkldnnQuantizer::CalculateSingleGruScale(
-    const std::string& op_type_name, const std::string& conn_name,
-    const std::string& var_name, const LoDTensor& var_tensor,
-    bool is_unsigned) {
-  auto rule = qconfig_->scale_algo(op_type_name, conn_name);
-  if (rule == ScaleAlgo::NONE) return;
-
-  PADDLE_ENFORCE_GT(
-      var_tensor.numel(), 0,
-      platform::errors::InvalidArgument(
-          "MkldnnQuantizer: LoDTensor of variable %s for quantization of op "
-          "%s of connection %s should not be empty.",
-          var_name, op_type_name, conn_name));
-
-  switch (rule) {
-    case ScaleAlgo::MAX:
-      scales_[var_name] = GetMaxScalingFactor(var_tensor, is_unsigned);
-      break;
-    case ScaleAlgo::MAX_CH:
-      scales_[var_name] = GetMaxChScalingFactor(var_tensor, is_unsigned,
-                                                /*is_transposed*/ false);
-      break;
-    case ScaleAlgo::MAX_CH_T:
-      scales_[var_name] = GetMaxChScalingFactor(var_tensor, is_unsigned,
-                                                /*is_transposed*/ true);
-      break;
-    case ScaleAlgo::MAX_CH_GRU:
-      scales_[var_name] = GetMaxChGruScalingFactor(var_tensor, is_unsigned);
       break;
     case ScaleAlgo::KL:
       scales_[var_name] = GetKLScalingFactor(var_tensor, is_unsigned);
