@@ -35,6 +35,7 @@ namespace paddle {
 
 using platform::CPUPlace;
 using framework::LoDTensor;
+using framework::Variable;
 using framework::ir::Graph;
 using ConstEigenVectorArrayMap =
     Eigen::Map<const Eigen::Array<float, Eigen::Dynamic, 1>>;
@@ -47,21 +48,47 @@ using string::PrettyLogH1;
 using VariableNameMap = std::map<std::string, std::vector<std::string>>;
 static LoDTensor CreateScaleTensor(int64_t channels_num = 1);
 
-void AnalysisPredictor::MkldnnQuantizer::CalculateScalesForGRU(
-    const paddle::framework::OpDesc* op) {}
+static void check_var(const Variable* var, const std::string& var_name) {
+  PADDLE_ENFORCE_NOT_NULL(var, platform::errors::PreconditionNotMet(
+                                   "%s is not in the scope", var_name));
+  PADDLE_ENFORCE_EQ(
+      var->IsType<LoDTensor>(), true,
+      platform::errors::PreconditionNotMet("Only support lod tensor now."));
+}
+
+static void check_tensor(const LoDTensor& tensor) {
+  PADDLE_ENFORCE_GT(tensor.dims().size(), 0, platform::errors::InvalidArgument(
+                                                 "Tensor dimension is empty."));
+}
+
+void AnalysisPredictor::MkldnnQuantizer::CalculateScalesForGRUWeights(
+    const paddle::framework::OpDesc* op) {
+  const auto& wx_names = op->Input("WeightX");
+  const auto& wh_names = op->Input("WeightH");
+  for (size_t i = 0; i < wx_names.size(); ++i) {
+    const auto& wx_name = wx_names[i];
+    const auto& wh_name = wh_names[i];
+    auto* wx_var = predictor_.sub_scope_->FindVar(wx_name);
+    auto* wh_var = predictor_.sub_scope_->FindVar(wh_name);
+    check_var(wx_var, wx_name);
+    check_var(wh_var, wh_name);
+    LoDTensor* wx_tensor = wx_var->GetMutable<LoDTensor>();
+    LoDTensor* wh_tensor = wh_var->GetMutable<LoDTensor>();
+    scales_[wx_name] = GetMaxChGRUScalingFactor(*wx_tensor, *wh_tensor);
+  }
+}
 
 void AnalysisPredictor::MkldnnQuantizer::CalculateScalesForOpInputs(
     const paddle::framework::OpDesc* op) {
+  if (op->Type() == "fusion_gru" || op->Type() == "multi_gru") {
+    CalculateScalesForGRUWeights(op);
+  }
   for (auto const& input : op->Inputs()) {
     for (const auto& var_name : input.second) {
       // skip if scale already computed
       if (scales_.find(var_name) != scales_.end()) continue;
       auto* var = predictor_.sub_scope_->FindVar(var_name);
-      PADDLE_ENFORCE_NOT_NULL(var, platform::errors::PreconditionNotMet(
-                                       "%s is not in the scope", var_name));
-      PADDLE_ENFORCE_EQ(
-          var->IsType<LoDTensor>(), true,
-          platform::errors::PreconditionNotMet("Only support lod tensor now."));
+      check_var(var, var_name);
       LoDTensor* var_tensor = var->GetMutable<LoDTensor>();
       // force unsigned type if already know it
       bool is_unsigned = false;
@@ -78,11 +105,7 @@ void AnalysisPredictor::MkldnnQuantizer::CalculateScalesForOpOutputs(
       // skip if scale already computed
       if (scales_.find(var_name) != scales_.end()) continue;
       auto* var = predictor_.sub_scope_->FindVar(var_name);
-      PADDLE_ENFORCE_NOT_NULL(var, platform::errors::PreconditionNotMet(
-                                       "%s is not in the scope", var_name));
-      PADDLE_ENFORCE_EQ(
-          var->IsType<LoDTensor>(), true,
-          platform::errors::PreconditionNotMet("Only support lod tensor now."));
+      check_var(var, var_name);
       LoDTensor* var_tensor = var->GetMutable<LoDTensor>();
       // force unsigned type if already know it
       bool is_unsigned = false;
@@ -137,13 +160,9 @@ bool AnalysisPredictor::MkldnnQuantizer::CalculateScales() {
   std::map<std::string, std::map<std::string, LoDTensor>> gathered_data;
   for (const auto* op : predictor_.inference_program_->Block(0).AllOps()) {
     if (platform::HasOpINT8DataType(op)) {
-      if (op->Type() == "fusion_gru" || op->Type() == "multi_gru") {
-        CalculateScalesForGRU(op);
-      } else {
-        // handle inputs first to let is_unsigned be inferred for the outputs
-        CalculateScalesForOpInputs(op);
-        CalculateScalesForOpOutputs(op);
-      }
+      // handle inputs first to let is_unsigned be inferred for the outputs
+      CalculateScalesForOpInputs(op);
+      CalculateScalesForOpOutputs(op);
     }
   }
   return true;
@@ -357,9 +376,7 @@ AnalysisPredictor::MkldnnQuantizer::GetMaxScalingFactor(
 std::pair<bool, LoDTensor>
 AnalysisPredictor::MkldnnQuantizer::GetMaxChScalingFactor(
     const LoDTensor& var_tensor, bool is_unsigned, bool is_transposed) const {
-  PADDLE_ENFORCE_GT(
-      var_tensor.dims().size(), 0,
-      platform::errors::InvalidArgument("Tensor dimension is empty."));
+  check_tensor(var_tensor);
 
   ConstEigenVectorArrayMap eigen_tensor{var_tensor.data<float>(),
                                         var_tensor.numel(), 1};
@@ -389,6 +406,25 @@ AnalysisPredictor::MkldnnQuantizer::GetMaxChScalingFactor(
   auto* scale_ptr = scale_tensor.mutable_data<double>(CPUPlace());
   std::copy(scales.data(), scales.data() + scales.size(), scale_ptr);
 
+  return std::make_pair(is_unsigned, scale_tensor);
+}
+
+std::pair<bool, LoDTensor>
+AnalysisPredictor::MkldnnQuantizer::GetMaxChGRUScalingFactor(
+    const LoDTensor& wx_tensor, const LoDTensor& wh_tensor) const {
+  check_tensor(wx_tensor);
+  check_tensor(wh_tensor);
+
+  ConstEigenVectorArrayMap wx{wx_tensor.data<float>(), wx_tensor.numel(), 1};
+  ConstEigenVectorArrayMap wh{wh_tensor.data<float>(), wh_tensor.numel(), 1};
+
+  // Implement the algorighm of the method _compute_single_gru_weight_scales
+  // from the script
+  // python/paddle/fluid/contrib/slim/quantization/quant2_int8_mkldnn_pass.py
+  // ...
+
+  bool is_unsigned = false;
+  LoDTensor scale_tensor;
   return std::make_pair(is_unsigned, scale_tensor);
 }
 

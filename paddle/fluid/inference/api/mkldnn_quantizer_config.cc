@@ -71,9 +71,8 @@ MkldnnQuantizerConfig::MkldnnQuantizerConfig() {
   rules_["fusion_gru"]["X"] = ScaleAlgo::KL;
   rules_["fusion_gru"]["H0"] = ScaleAlgo::NONE;
   rules_["fusion_gru"]["Bias"] = ScaleAlgo::NONE;
-  rules_["fusion_gru"]["WeightX"] = ScaleAlgo::MAX_CH_GRU;
-  rules_["fusion_gru"]["WeightH"] =
-      ScaleAlgo::NONE;  // WeightH will be handled together with WeightX
+  rules_["fusion_gru"]["WeightX"] = ScaleAlgo::NONE;  // Weights will be handled
+  rules_["fusion_gru"]["WeightH"] = ScaleAlgo::NONE;  // separately
   rules_["fusion_gru"]["ReorderedH0"] = ScaleAlgo::NONE;
   rules_["fusion_gru"]["XX"] = ScaleAlgo::NONE;
   rules_["fusion_gru"]["BatchedInput"] = ScaleAlgo::NONE;
@@ -82,9 +81,8 @@ MkldnnQuantizerConfig::MkldnnQuantizerConfig() {
 
   rules_["multi_gru"]["X"] = ScaleAlgo::KL;
   rules_["multi_gru"]["Bias"] = ScaleAlgo::NONE;
-  rules_["multi_gru"]["WeightX"] = ScaleAlgo::MAX_CH_GRU;
-  rules_["multi_gru"]["WeightH"] =
-      ScaleAlgo::NONE;  // WeightH will be handled together with WeightX
+  rules_["multi_gru"]["WeightX"] = ScaleAlgo::NONE;  // Weights will be handled
+  rules_["multi_gru"]["WeightH"] = ScaleAlgo::NONE;  // separately
   rules_["multi_gru"]["Scale_weights"] = ScaleAlgo::NONE;
   rules_["multi_gru"]["Hidden"] = ScaleAlgo::KL;
 }
